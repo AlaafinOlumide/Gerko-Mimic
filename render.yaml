@@ -1,0 +1,24 @@
+services:
+  - type: worker
+    name: gerko-xau-quant-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: TZ
+        value: Europe/London
+      - key: SYMBOL
+        value: XAU/USD
+      - key: MIN_SCORE
+        value: 80
+      - key: MAX_SIGNALS_PER_DAY
+        value: 8
+      - key: CHECK_INTERVAL_SECONDS
+        value: 300
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
