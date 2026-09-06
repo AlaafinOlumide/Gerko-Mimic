@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict
 
 import requests
+
+
+logging.basicConfig(
+    level=logging.INFO
+)
 
 logger = logging.getLogger(
     __name__
@@ -12,7 +16,11 @@ logger = logging.getLogger(
 
 
 class TelegramBot:
-    def __init__(self) -> None:
+
+    def __init__(
+        self,
+    ) -> None:
+
         self.token = os.getenv(
             "TELEGRAM_BOT_TOKEN",
             "",
@@ -23,64 +31,30 @@ class TelegramBot:
             "",
         ).strip()
 
-        self.timeout_seconds = int(
-            os.getenv(
-                "TELEGRAM_TIMEOUT_SECONDS",
-                "20",
-            )
-        )
-
-    @property
-    def enabled(self) -> bool:
-        return bool(
-            self.token
-            and self.chat_id
-        )
-
-    def configuration_status(
-        self,
-    ) -> Dict[str, bool]:
-        return {
-            "token_present": bool(
-                self.token
-            ),
-            "chat_id_present": bool(
-                self.chat_id
-            ),
-        }
-
     def send(
         self,
         message: str,
     ) -> bool:
-        if not self.enabled:
-            status = self.configuration_status()
 
+        if not self.token:
             logger.error(
-                "Telegram is not configured. "
-                "token_present=%s, chat_id_present=%s",
-                status["token_present"],
-                status["chat_id_present"],
+                "TELEGRAM_BOT_TOKEN missing."
             )
+            return False
 
-            print(
-                "Telegram not configured. "
-                "Message output follows:\n"
+        if not self.chat_id:
+            logger.error(
+                "TELEGRAM_CHAT_ID missing."
             )
-
-            print(message)
-
             return False
 
         if any(
-            character.isspace()
-            for character in self.token
+            ch.isspace()
+            for ch in self.token
         ):
             logger.error(
-                "TELEGRAM_BOT_TOKEN contains whitespace. "
-                "Paste the token as one uninterrupted string."
+                "Telegram token contains whitespace."
             )
-
             return False
 
         url = (
@@ -88,7 +62,7 @@ class TelegramBot:
             f"bot{self.token}/sendMessage"
         )
 
-        payload: Dict[str, Any] = {
+        payload = {
             "chat_id": self.chat_id,
             "text": message,
             "parse_mode": "HTML",
@@ -99,83 +73,79 @@ class TelegramBot:
             response = requests.post(
                 url,
                 json=payload,
-                timeout=self.timeout_seconds,
+                timeout=20,
             )
 
-            if response.status_code == 401:
+            if (
+                response.status_code
+                == 401
+            ):
                 logger.error(
-                    "Telegram returned 401 Unauthorized. "
-                    "The bot token is invalid or revoked."
+                    "Telegram token unauthorized."
                 )
-
                 return False
 
-            if response.status_code == 404:
+            if (
+                response.status_code
+                == 404
+            ):
                 logger.error(
-                    "Telegram returned 404 Not Found. "
-                    "Check the token for missing characters "
-                    "or spaces."
+                    "Telegram endpoint not found. "
+                    "Check bot token."
                 )
-
                 return False
 
-            if response.status_code == 400:
+            if (
+                response.status_code
+                == 403
+            ):
                 logger.error(
-                    "Telegram returned 400 Bad Request: %s",
+                    "Telegram bot does not have "
+                    "permission to send."
+                )
+                return False
+
+            if (
+                response.status_code
+                == 400
+            ):
+                logger.error(
+                    "Telegram Bad Request: %s",
                     response.text,
                 )
-
-                return False
-
-            if response.status_code == 403:
-                logger.error(
-                    "Telegram returned 403 Forbidden. "
-                    "The bot may be blocked or may not have "
-                    "permission to post in the destination."
-                )
-
                 return False
 
             response.raise_for_status()
 
-            response_data = response.json()
+            result = (
+                response.json()
+            )
 
-            if not response_data.get(
-                "ok",
-                False,
+            if not result.get(
+                "ok"
             ):
                 logger.error(
-                    "Telegram API returned an unsuccessful "
-                    "response: %s",
-                    response_data,
+                    "Telegram API error: %s",
+                    result,
                 )
-
                 return False
 
             logger.info(
-                "Telegram message sent successfully."
+                "Telegram signal sent."
             )
 
             return True
 
         except requests.Timeout:
             logger.error(
-                "Telegram request timed out."
+                "Telegram timeout."
             )
 
             return False
 
         except requests.RequestException as exc:
             logger.exception(
-                "Telegram request failed: %s",
-                exc,
-            )
-
-            return False
-
-        except ValueError as exc:
-            logger.error(
-                "Telegram returned invalid JSON: %s",
+                "Telegram error: %s",
                 exc,
             )
 
