@@ -5,135 +5,99 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class RiskDecision:
-    lot_size: float
+    allowed: bool
     grade: str
     quality: str
-    trade_allowed: bool
-    reason: str
+    lot_size: float
 
 
-class RiskEngine:
-    """
-    Confidence-based recommendation engine.
+def classify_signal(
+    score: int,
+    minimum: int,
+) -> RiskDecision:
+    score = max(
+        0,
+        min(
+            int(score),
+            100,
+        ),
+    )
 
-    The bot does not place trades automatically. It only provides
-    a suggested lot size based on the setup score.
+    minimum = max(
+        0,
+        min(
+            int(minimum),
+            100,
+        ),
+    )
 
-    The suggested figures must still be checked against:
-    - Account balance
-    - Stop-loss distance
-    - Maximum permitted account risk
-    - Prop-firm drawdown rules
-    """
-
-    def __init__(
-        self,
-        min_score: int = 80,
-    ) -> None:
-        if not 0 <= min_score <= 100:
-            raise ValueError(
-                "min_score must be between 0 and 100."
-            )
-
-        self.min_score = min_score
-
-    def decide(
-        self,
-        score: int,
-    ) -> RiskDecision:
-        score = max(
-            0,
-            min(
-                int(score),
-                100,
-            ),
-        )
-
-        if score >= 95:
-            return RiskDecision(
-                lot_size=0.50,
-                grade="A+",
-                quality="Elite Gerko Alignment",
-                trade_allowed=True,
-                reason=(
-                    "Exceptional multi-layer alignment."
-                ),
-            )
-
-        if score >= 90:
-            return RiskDecision(
-                lot_size=0.25,
-                grade="A",
-                quality="Premium Gerko Execution",
-                trade_allowed=True,
-                reason=(
-                    "Very strong probability alignment."
-                ),
-            )
-
-        if score >= 85:
-            return RiskDecision(
-                lot_size=0.15,
-                grade="A-",
-                quality="Strong Gerko Execution",
-                trade_allowed=True,
-                reason=(
-                    "Strong trend, momentum and execution alignment."
-                ),
-            )
-
-        if score >= self.min_score:
-            return RiskDecision(
-                lot_size=0.15,
-                grade="B+",
-                quality="Qualified Gerko Setup",
-                trade_allowed=True,
-                reason=(
-                    "Setup meets the minimum Gerko threshold."
-                ),
-            )
-
-        if score >= 75:
-            return RiskDecision(
-                lot_size=0.00,
-                grade="B",
-                quality="Gerko Watchlist",
-                trade_allowed=False,
-                reason=(
-                    "Setup is close but lacks sufficient confirmation."
-                ),
-            )
-
+    if score < minimum:
         return RiskDecision(
-            lot_size=0.00,
-            grade="C",
-            quality="No Trade",
-            trade_allowed=False,
-            reason=(
-                "Weak, mixed or incomplete setup."
-            ),
+            False,
+            "NO TRADE",
+            "Insufficient Confirmation",
+            0.00,
         )
+
+    if score >= 94:
+        return RiskDecision(
+            True,
+            "A+",
+            "Elite Gerko Setup",
+            0.25,
+        )
+
+    if score >= 88:
+        return RiskDecision(
+            True,
+            "A",
+            "Premium Gerko Setup",
+            0.20,
+        )
+
+    if score >= 83:
+        return RiskDecision(
+            True,
+            "A-",
+            "Strong Gerko Setup",
+            0.15,
+        )
+
+    if score >= 78:
+        return RiskDecision(
+            True,
+            "B+",
+            "Qualified Gerko Setup",
+            0.10,
+        )
+
+    return RiskDecision(
+        True,
+        "B",
+        "Early Gerko Setup",
+        0.10,
+    )
 
 
 def calculate_rr(
     entry: float,
-    stop_loss: float,
-    take_profit: float,
+    stop: float,
+    target: float,
     side: str,
 ) -> float:
     side = side.upper().strip()
 
     if side == "BUY":
-        risk = entry - stop_loss
-        reward = take_profit - entry
+        risk = entry - stop
+        reward = target - entry
 
     elif side == "SELL":
-        risk = stop_loss - entry
-        reward = entry - take_profit
+        risk = stop - entry
+        reward = entry - target
 
     else:
         raise ValueError(
-            "side must be BUY or SELL."
+            "side must be BUY or SELL"
         )
 
     if risk <= 0 or reward <= 0:
