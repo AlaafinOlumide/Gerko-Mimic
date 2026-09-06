@@ -78,37 +78,3 @@ def classify_signal(
         quality="Early Gerko Setup",
         lot_size=0.10,
     )
-
-
-def calculate_rr(
-    entry: float,
-    stop: float,
-    target: float,
-    side: str,
-) -> float:
-
-    side = side.upper().strip()
-
-    if side == "BUY":
-
-        risk = entry - stop
-        reward = target - entry
-
-    elif side == "SELL":
-
-        risk = stop - entry
-        reward = entry - target
-
-    else:
-
-        raise ValueError(
-            "side must be BUY or SELL"
-        )
-
-    if risk <= 0 or reward <= 0:
-        return 0.0
-
-    return round(
-        reward / risk,
-        2,
-    )
