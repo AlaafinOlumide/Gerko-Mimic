@@ -10,10 +10,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from risk_engine import (
-    calculate_rr,
-    classify_signal,
-)
+from risk_engine import classify_signal
 
 from sr_engine import (
     build_levels,
@@ -107,10 +104,40 @@ class Signal:
     invalidation: str
 
 
+def calculate_rr(
+    entry: float,
+    stop: float,
+    target: float,
+    side: str,
+) -> float:
+
+    side = side.upper().strip()
+
+    if side == "BUY":
+        risk = entry - stop
+        reward = target - entry
+
+    elif side == "SELL":
+        risk = stop - entry
+        reward = entry - target
+
+    else:
+        return 0.0
+
+    if risk <= 0 or reward <= 0:
+        return 0.0
+
+    return round(
+        reward / risk,
+        2,
+    )
+
+
 def ema(
     series: pd.Series,
     period: int,
 ) -> pd.Series:
+
     return series.ewm(
         span=period,
         adjust=False,
@@ -121,6 +148,7 @@ def rsi(
     series: pd.Series,
     period: int = 14,
 ) -> pd.Series:
+
     delta = series.diff()
 
     gains = delta.clip(
@@ -164,6 +192,7 @@ def rsi(
 def true_range(
     df: pd.DataFrame,
 ) -> pd.Series:
+
     return pd.concat(
         [
             (
@@ -189,6 +218,7 @@ def atr(
     df: pd.DataFrame,
     period: int = 14,
 ) -> pd.Series:
+
     return true_range(
         df
     ).ewm(
@@ -200,6 +230,7 @@ def atr(
 def macd_histogram(
     series: pd.Series,
 ) -> pd.Series:
+
     fast = ema(
         series,
         12,
@@ -211,8 +242,7 @@ def macd_histogram(
     )
 
     macd = (
-        fast
-        - slow
+        fast - slow
     )
 
     signal = macd.ewm(
@@ -221,8 +251,7 @@ def macd_histogram(
     ).mean()
 
     return (
-        macd
-        - signal
+        macd - signal
     )
 
 
@@ -230,6 +259,7 @@ def adx(
     df: pd.DataFrame,
     period: int = 14,
 ) -> pd.Series:
+
     up = df[
         "high"
     ].diff()
@@ -318,6 +348,7 @@ def adx(
 def enrich(
     df: pd.DataFrame,
 ) -> pd.DataFrame:
+
     df = df.copy()
 
     for column in [
@@ -326,6 +357,7 @@ def enrich(
         "low",
         "close",
     ]:
+
         df[column] = pd.to_numeric(
             df[column],
             errors="coerce",
@@ -373,7 +405,8 @@ def enrich(
     )
 
     return (
-        df.dropna()
+        df
+        .dropna()
         .reset_index(
             drop=True
         )
@@ -383,6 +416,7 @@ def enrich(
 def current_impulse(
     m5: pd.DataFrame,
 ) -> str:
+
     latest = m5.iloc[-1]
     previous = m5.iloc[-2]
     third = m5.iloc[-3]
@@ -502,6 +536,7 @@ def candle_exhausted(
     m5: pd.DataFrame,
     m15_atr: float,
 ) -> bool:
+
     latest = m5.iloc[-1]
 
     candle_range = float(
@@ -520,6 +555,7 @@ def overextended_from_value(
     ema20_value: float,
     atr_value: float,
 ) -> bool:
+
     return (
         abs(
             price - ema20_value
@@ -534,6 +570,7 @@ def move_exhausted(
     atr_value: float,
     max_atr: float,
 ) -> bool:
+
     return (
         abs(
             price - origin
@@ -550,6 +587,7 @@ class GerkoXAUModel:
         side: str,
         signal_time: datetime,
     ) -> str:
+
         setup_codes = {
             "TREND_CONTINUATION": "TC",
             "SUPPORT_BOUNCE": "SB",
@@ -592,6 +630,7 @@ class GerkoXAUModel:
         h4: pd.DataFrame,
         h1: pd.DataFrame,
     ) -> str:
+
         h4_last = h4.iloc[-1]
         h1_last = h1.iloc[-1]
 
@@ -651,8 +690,6 @@ class GerkoXAUModel:
             m5
         )
 
-        # Never trade directly against
-        # the live M5 impulse.
         if impulse not in {
             side,
             "NEUTRAL",
@@ -671,16 +708,12 @@ class GerkoXAUModel:
             m5_last["ema20"]
         )
 
-        # Avoid signals caused by an
-        # already oversized trigger candle.
         if candle_exhausted(
             m5,
             atr_now,
         ):
             return None
 
-        # Avoid chasing price far away
-        # from short-term value.
         if overextended_from_value(
             price,
             ema20_value,
@@ -689,7 +722,6 @@ class GerkoXAUModel:
             return None
 
         score = 0
-
         reasons: List[str] = []
 
         if side == "BUY":
@@ -1230,10 +1262,6 @@ class GerkoXAUModel:
             Signal
         ] = []
 
-        # ====================================================
-        # TREND
-        # ====================================================
-
         if allow_trend:
 
             trend_candidate = (
@@ -1250,10 +1278,6 @@ class GerkoXAUModel:
                 candidates.append(
                     trend_candidate
                 )
-
-        # ====================================================
-        # SUPPORT / RESISTANCE
-        # ====================================================
 
         if allow_sr:
 
@@ -1279,10 +1303,6 @@ class GerkoXAUModel:
                 atr_value,
             )
 
-            # ================================================
-            # SUPPORT BOUNCE
-            # ================================================
-
             support = detect_support_bounce(
                 m5,
                 m15,
@@ -1295,92 +1315,82 @@ class GerkoXAUModel:
                 and support.level
             ):
 
-                # Hard veto when current
-                # short-term market is selling.
-                if impulse == "SELL":
+                if impulse != "SELL":
 
-                    support.reasons.append(
-                        "Current M5 impulse is bearish, "
-                        "so BUY bounce is vetoed."
-                    )
-
-                elif not move_exhausted(
-                    current_price,
-                    support.level.price,
-                    atr_value,
-                    MAX_SR_CHASE_ATR,
-                ):
-
-                    minimum = (
-                        SR_MIN_SCORE
-                    )
-
-                    if (
-                        context
-                        == "BEARISH"
+                    if not move_exhausted(
+                        current_price,
+                        support.level.price,
+                        atr_value,
+                        MAX_SR_CHASE_ATR,
                     ):
+
                         minimum = (
-                            COUNTERTREND_SR_MIN_SCORE
+                            SR_MIN_SCORE
                         )
 
-                        support.reasons.append(
-                            "Countertrend support bounce — "
-                            "stronger confirmation required."
-                        )
+                        if (
+                            context
+                            == "BEARISH"
+                        ):
 
-                    decision = classify_signal(
-                        support.score,
-                        minimum,
-                    )
-
-                    if decision.allowed:
-
-                        candidates.append(
-                            self.create_signal(
-                                signal_time=signal_time,
-
-                                setup_type=(
-                                    "SUPPORT_BOUNCE"
-                                ),
-
-                                setup_name=(
-                                    "Support Rejection Bounce"
-                                ),
-
-                                side="BUY",
-
-                                score=support.score,
-
-                                context=context,
-                                impulse=impulse,
-
-                                reference_level=(
-                                    support.level.price
-                                ),
-
-                                level_strength=(
-                                    support.level.strength
-                                ),
-
-                                level_touches=(
-                                    support.level.touches
-                                ),
-
-                                price=current_price,
-
-                                atr_value=atr_value,
-
-                                reasons=(
-                                    support.reasons
-                                ),
-
-                                decision=decision,
+                            minimum = (
+                                COUNTERTREND_SR_MIN_SCORE
                             )
+
+                            support.reasons.append(
+                                "Countertrend support bounce — "
+                                "stronger confirmation required."
+                            )
+
+                        decision = classify_signal(
+                            support.score,
+                            minimum,
                         )
 
-            # ================================================
-            # RESISTANCE BOUNCE
-            # ================================================
+                        if decision.allowed:
+
+                            candidates.append(
+                                self.create_signal(
+                                    signal_time=signal_time,
+
+                                    setup_type=(
+                                        "SUPPORT_BOUNCE"
+                                    ),
+
+                                    setup_name=(
+                                        "Support Rejection Bounce"
+                                    ),
+
+                                    side="BUY",
+
+                                    score=support.score,
+
+                                    context=context,
+                                    impulse=impulse,
+
+                                    reference_level=(
+                                        support.level.price
+                                    ),
+
+                                    level_strength=(
+                                        support.level.strength
+                                    ),
+
+                                    level_touches=(
+                                        support.level.touches
+                                    ),
+
+                                    price=current_price,
+
+                                    atr_value=atr_value,
+
+                                    reasons=(
+                                        support.reasons
+                                    ),
+
+                                    decision=decision,
+                                )
+                            )
 
             resistance = detect_resistance_bounce(
                 m5,
@@ -1394,92 +1404,82 @@ class GerkoXAUModel:
                 and resistance.level
             ):
 
-                # Hard veto when market is
-                # already impulsing upward.
-                if impulse == "BUY":
+                if impulse != "BUY":
 
-                    resistance.reasons.append(
-                        "Current M5 impulse is bullish, "
-                        "so SELL bounce is vetoed."
-                    )
-
-                elif not move_exhausted(
-                    current_price,
-                    resistance.level.price,
-                    atr_value,
-                    MAX_SR_CHASE_ATR,
-                ):
-
-                    minimum = (
-                        SR_MIN_SCORE
-                    )
-
-                    if (
-                        context
-                        == "BULLISH"
+                    if not move_exhausted(
+                        current_price,
+                        resistance.level.price,
+                        atr_value,
+                        MAX_SR_CHASE_ATR,
                     ):
+
                         minimum = (
-                            COUNTERTREND_SR_MIN_SCORE
+                            SR_MIN_SCORE
                         )
 
-                        resistance.reasons.append(
-                            "Countertrend resistance bounce — "
-                            "stronger confirmation required."
-                        )
+                        if (
+                            context
+                            == "BULLISH"
+                        ):
 
-                    decision = classify_signal(
-                        resistance.score,
-                        minimum,
-                    )
-
-                    if decision.allowed:
-
-                        candidates.append(
-                            self.create_signal(
-                                signal_time=signal_time,
-
-                                setup_type=(
-                                    "RESISTANCE_BOUNCE"
-                                ),
-
-                                setup_name=(
-                                    "Resistance Rejection Bounce"
-                                ),
-
-                                side="SELL",
-
-                                score=resistance.score,
-
-                                context=context,
-                                impulse=impulse,
-
-                                reference_level=(
-                                    resistance.level.price
-                                ),
-
-                                level_strength=(
-                                    resistance.level.strength
-                                ),
-
-                                level_touches=(
-                                    resistance.level.touches
-                                ),
-
-                                price=current_price,
-
-                                atr_value=atr_value,
-
-                                reasons=(
-                                    resistance.reasons
-                                ),
-
-                                decision=decision,
+                            minimum = (
+                                COUNTERTREND_SR_MIN_SCORE
                             )
+
+                            resistance.reasons.append(
+                                "Countertrend resistance bounce — "
+                                "stronger confirmation required."
+                            )
+
+                        decision = classify_signal(
+                            resistance.score,
+                            minimum,
                         )
 
-            # ================================================
-            # BREAK / RETEST
-            # ================================================
+                        if decision.allowed:
+
+                            candidates.append(
+                                self.create_signal(
+                                    signal_time=signal_time,
+
+                                    setup_type=(
+                                        "RESISTANCE_BOUNCE"
+                                    ),
+
+                                    setup_name=(
+                                        "Resistance Rejection Bounce"
+                                    ),
+
+                                    side="SELL",
+
+                                    score=resistance.score,
+
+                                    context=context,
+                                    impulse=impulse,
+
+                                    reference_level=(
+                                        resistance.level.price
+                                    ),
+
+                                    level_strength=(
+                                        resistance.level.strength
+                                    ),
+
+                                    level_touches=(
+                                        resistance.level.touches
+                                    ),
+
+                                    price=current_price,
+
+                                    atr_value=atr_value,
+
+                                    reasons=(
+                                        resistance.reasons
+                                    ),
+
+                                    decision=decision,
+                                )
+                            )
 
             break_retest = detect_break_retest(
                 m5,
@@ -1492,82 +1492,76 @@ class GerkoXAUModel:
                 and break_retest.level
             ):
 
-                # Do not trade breakout/retest
-                # against the current M5 impulse.
-                if impulse not in {
+                if impulse in {
                     break_retest.side,
                     "NEUTRAL",
                 }:
-                    pass
 
-                elif not move_exhausted(
-                    current_price,
-                    break_retest.level.price,
-                    atr_value,
-                    MAX_SR_CHASE_ATR,
-                ):
+                    if not move_exhausted(
+                        current_price,
+                        break_retest.level.price,
+                        atr_value,
+                        MAX_SR_CHASE_ATR,
+                    ):
 
-                    decision = classify_signal(
-                        break_retest.score,
-                        BREAK_RETEST_MIN_SCORE,
-                    )
-
-                    if decision.allowed:
-
-                        candidates.append(
-                            self.create_signal(
-                                signal_time=signal_time,
-
-                                setup_type=(
-                                    "BREAK_RETEST"
-                                ),
-
-                                setup_name=(
-                                    "Support/Resistance "
-                                    "Break & Retest"
-                                ),
-
-                                side=(
-                                    break_retest.side
-                                ),
-
-                                score=(
-                                    break_retest.score
-                                ),
-
-                                context=context,
-                                impulse=impulse,
-
-                                reference_level=(
-                                    break_retest.level.price
-                                ),
-
-                                level_strength=(
-                                    break_retest.level.strength
-                                ),
-
-                                level_touches=(
-                                    break_retest.level.touches
-                                ),
-
-                                price=current_price,
-
-                                atr_value=atr_value,
-
-                                reasons=(
-                                    break_retest.reasons
-                                ),
-
-                                decision=decision,
-                            )
+                        decision = classify_signal(
+                            break_retest.score,
+                            BREAK_RETEST_MIN_SCORE,
                         )
+
+                        if decision.allowed:
+
+                            candidates.append(
+                                self.create_signal(
+                                    signal_time=signal_time,
+
+                                    setup_type=(
+                                        "BREAK_RETEST"
+                                    ),
+
+                                    setup_name=(
+                                        "Support/Resistance "
+                                        "Break & Retest"
+                                    ),
+
+                                    side=(
+                                        break_retest.side
+                                    ),
+
+                                    score=(
+                                        break_retest.score
+                                    ),
+
+                                    context=context,
+                                    impulse=impulse,
+
+                                    reference_level=(
+                                        break_retest.level.price
+                                    ),
+
+                                    level_strength=(
+                                        break_retest.level.strength
+                                    ),
+
+                                    level_touches=(
+                                        break_retest.level.touches
+                                    ),
+
+                                    price=current_price,
+
+                                    atr_value=atr_value,
+
+                                    reasons=(
+                                        break_retest.reasons
+                                    ),
+
+                                    decision=decision,
+                                )
+                            )
 
         if not candidates:
             return None
 
-        # Highest score wins.
-        # When tied, S/R-based setups
-        # beat generic trend continuation.
         candidates.sort(
             key=lambda signal: (
                 signal.score,
@@ -1683,6 +1677,7 @@ HTF Context: <b>{signal.trend_context}</b>
 Current M5 Impulse: <b>{signal.impulse}</b>
 
 {level_section}
+
 <b>ENTRY</b>
 Entry Zone: <b>{signal.entry_low:.2f} – {signal.entry_high:.2f}</b>
 Entry Mid: {signal.entry_mid:.2f}
@@ -1703,7 +1698,7 @@ Model Lot Grade: <b>{signal.lot_size:.2f}</b>
 <b>INVALIDATION</b>
 {signal.invalidation}
 
-⚠️ Anti-chase filter active.
+⚠️ Anti-chase protection active.
 Do not enter materially outside the stated entry zone.
 
 #GERKO_XAU
