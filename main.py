@@ -15,69 +15,41 @@ from telegram_bot import TelegramBot
 
 load_dotenv()
 
-# ============================================================
-# ENVIRONMENT CONFIGURATION
-# ============================================================
-
 TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
 SYMBOL = os.getenv("SYMBOL", "XAU/USD").strip()
+CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "180"))
+MAX_SIGNALS_PER_DAY = int(os.getenv("MAX_SIGNALS_PER_DAY", "12"))
+SIGNAL_COOLDOWN_MINUTES = int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "20"))
+BOT_TIMEZONE = os.getenv("BOT_TIMEZONE", "Europe/London").strip()
 
-CHECK_INTERVAL_SECONDS = int(
-    os.getenv("CHECK_INTERVAL_SECONDS", "300")
-)
+SEND_STARTUP_MESSAGE = os.getenv(
+    "SEND_STARTUP_MESSAGE",
+    "true",
+).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
-MIN_SCORE = int(
-    os.getenv("MIN_SCORE", "80")
-)
-
-MAX_SIGNALS_PER_DAY = int(
-    os.getenv("MAX_SIGNALS_PER_DAY", "8")
-)
-
-SIGNAL_COOLDOWN_MINUTES = int(
-    os.getenv("SIGNAL_COOLDOWN_MINUTES", "45")
-)
-
-BOT_TIMEZONE = os.getenv(
-    "BOT_TIMEZONE",
-    "Europe/London",
-).strip()
-
-SEND_STARTUP_MESSAGE = (
-    os.getenv("SEND_STARTUP_MESSAGE", "true")
-    .strip()
-    .lower()
-    in {"1", "true", "yes", "on"}
-)
-
-# ============================================================
-# SESSION WINDOWS
-# ============================================================
-
-# London/UK local time.
-SCOUTING_WINDOWS = [
-    (dtime(23, 0), dtime(3, 0)),
-    (dtime(7, 0), dtime(11, 0)),
-    (dtime(12, 0), dtime(17, 0)),
-]
-
-
-def get_timezone() -> ZoneInfo:
-    try:
-        return ZoneInfo(BOT_TIMEZONE)
-    except Exception:
-        print(
-            f"Invalid BOT_TIMEZONE '{BOT_TIMEZONE}'. "
-            "Falling back to Europe/London."
-        )
-        return ZoneInfo("Europe/London")
-
-
-LOCAL_TIMEZONE = get_timezone()
+try:
+    LOCAL_TIMEZONE = ZoneInfo(BOT_TIMEZONE)
+except Exception:
+    LOCAL_TIMEZONE = ZoneInfo("Europe/London")
 
 
 def now_local() -> datetime:
     return datetime.now(LOCAL_TIMEZONE)
+
+
+TREND_WINDOWS = [
+    (dtime(23, 0), dtime(3, 0)),
+    (dtime(7, 0), dtime(17, 30)),
+]
+
+SR_WINDOWS = [
+    (dtime(4, 0), dtime(22, 0)),
+]
 
 
 def inside_window(
@@ -85,28 +57,13 @@ def inside_window(
     start: dtime,
     end: dtime,
 ) -> bool:
-    """
-    Check whether current time is inside a session window.
-
-    Supports windows crossing midnight, such as 23:00-03:00.
-    """
-
     if start <= end:
         return start <= current <= end
 
     return current >= start or current <= end
 
 
-def market_weekend_closed(dt: datetime) -> bool:
-    """
-    Basic XAUUSD weekend filter.
-
-    Stops scanning:
-    - Friday from 22:00 London time
-    - All Saturday
-    - Sunday before 22:00 London time
-    """
-
+def market_closed(dt: datetime) -> bool:
     weekday = dt.weekday()
 
     if weekday == 4 and dt.time() >= dtime(22, 0):
@@ -121,27 +78,41 @@ def market_weekend_closed(dt: datetime) -> bool:
     return False
 
 
-def is_trading_time(dt: datetime) -> bool:
-    if market_weekend_closed(dt):
+def trend_window_active(dt: datetime) -> bool:
+    if market_closed(dt):
         return False
 
     return any(
-        inside_window(dt.time(), start, end)
-        for start, end in SCOUTING_WINDOWS
+        inside_window(
+            dt.time(),
+            start,
+            end,
+        )
+        for start, end in TREND_WINDOWS
     )
 
 
-# ============================================================
-# MARKET DATA
-# ============================================================
+def sr_window_active(dt: datetime) -> bool:
+    if market_closed(dt):
+        return False
+
+    return any(
+        inside_window(
+            dt.time(),
+            start,
+            end,
+        )
+        for start, end in SR_WINDOWS
+    )
+
 
 def fetch_twelve_data(
     interval: str,
-    outputsize: int = 300,
+    outputsize: int,
 ) -> pd.DataFrame:
     if not TWELVE_DATA_API_KEY:
         raise RuntimeError(
-            "TWELVE_DATA_API_KEY is missing from environment variables."
+            "TWELVE_DATA_API_KEY is missing."
         )
 
     url = "https://api.twelvedata.com/time_series"
@@ -162,28 +133,26 @@ def fetch_twelve_data(
     )
 
     response.raise_for_status()
-    data = response.json()
+    payload = response.json()
 
-    if data.get("status") == "error":
-        message = data.get(
-            "message",
-            "Unknown Twelve Data error",
-        )
-
+    if payload.get("status") == "error":
         raise RuntimeError(
-            f"Twelve Data error for {interval}: {message}"
+            payload.get(
+                "message",
+                f"Twelve Data error on {interval}",
+            )
         )
 
-    values = data.get("values")
+    values = payload.get("values")
 
     if not values:
         raise RuntimeError(
-            f"No candle values returned for {interval}: {data}"
+            f"No {interval} candles returned."
         )
 
-    dataframe = pd.DataFrame(values)
+    df = pd.DataFrame(values)
 
-    required_columns = {
+    required = {
         "datetime",
         "open",
         "high",
@@ -191,24 +160,31 @@ def fetch_twelve_data(
         "close",
     }
 
-    missing_columns = required_columns.difference(
-        dataframe.columns
-    )
+    missing = required - set(df.columns)
 
-    if missing_columns:
+    if missing:
         raise RuntimeError(
-            f"Missing columns for {interval}: "
-            f"{sorted(missing_columns)}"
+            f"Missing columns: {missing}"
         )
 
-    dataframe["datetime"] = pd.to_datetime(
-        dataframe["datetime"],
+    df["datetime"] = pd.to_datetime(
+        df["datetime"],
         errors="coerce",
     )
 
-    dataframe = (
-        dataframe
-        .dropna(subset=["datetime"])
+    for column in [
+        "open",
+        "high",
+        "low",
+        "close",
+    ]:
+        df[column] = pd.to_numeric(
+            df[column],
+            errors="coerce",
+        )
+
+    return (
+        df.dropna()
         .sort_values("datetime")
         .drop_duplicates(
             subset=["datetime"],
@@ -217,160 +193,125 @@ def fetch_twelve_data(
         .reset_index(drop=True)
     )
 
-    return dataframe[
-        [
-            "datetime",
-            "open",
-            "high",
-            "low",
-            "close",
-        ]
-    ]
-
 
 def fetch_all_candles() -> Dict[str, pd.DataFrame]:
     return {
-        "h1": fetch_twelve_data("1h", 350),
-        "m15": fetch_twelve_data("15min", 350),
-        "m5": fetch_twelve_data("5min", 350),
+        "h4": fetch_twelve_data(
+            "4h",
+            300,
+        ),
+        "h1": fetch_twelve_data(
+            "1h",
+            400,
+        ),
+        "m15": fetch_twelve_data(
+            "15min",
+            450,
+        ),
+        "m5": fetch_twelve_data(
+            "5min",
+            450,
+        ),
     }
 
 
-# ============================================================
-# SIGNAL CONTROL
-# ============================================================
-
-def build_signal_key(
+def signal_key(
     signal: Signal,
-) -> Tuple[str, float, float, float]:
-    """
-    Creates a duplicate-control key.
-
-    Prices are rounded to reduce duplicate alerts caused by tiny
-    data-provider price differences.
-    """
-
+) -> Tuple:
     return (
+        signal.setup_type,
         signal.side,
-        round(signal.entry_mid, 1),
-        round(signal.stop_loss, 1),
-        round(signal.tp2, 1),
+        round(
+            signal.reference_level,
+            1,
+        ),
+        round(
+            signal.entry_mid,
+            1,
+        ),
     )
 
 
 def cooldown_finished(
-    last_signal_time: Optional[datetime],
+    last_time: Optional[datetime],
     current_time: datetime,
 ) -> bool:
-    if last_signal_time is None:
+    if last_time is None:
         return True
 
-    elapsed_seconds = (
-        current_time - last_signal_time
-    ).total_seconds()
-
-    required_seconds = SIGNAL_COOLDOWN_MINUTES * 60
-
-    return elapsed_seconds >= required_seconds
-
-
-# ============================================================
-# TELEGRAM MESSAGES
-# ============================================================
-
-def heartbeat_message() -> str:
-    current_time = now_local().strftime(
-        "%d %b %Y, %H:%M:%S"
+    return (
+        current_time - last_time
+    ).total_seconds() >= (
+        SIGNAL_COOLDOWN_MINUTES * 60
     )
 
-    return f"""
-🧠⚡ <b>GERKO-XAU QUANT ONLINE</b>
-━━━━━━━━━━━━━━━━━━━━
 
-<b>Model:</b> GERKO-MIMIC XAU
+def startup_message() -> str:
+    return f"""
+🧠⚡ <b>GERKO-XAU TIMING ENGINE ONLINE</b>
+━━━━━━━━━━━━━━━━━━━━━━
+
 <b>Symbol:</b> XAUUSD
-<b>Status:</b> ACTIVE
-<b>Minimum Score:</b> {MIN_SCORE}/100
-<b>Daily Signal Limit:</b> {MAX_SIGNALS_PER_DAY}
-<b>Scan Interval:</b> {CHECK_INTERVAL_SECONDS} seconds
-<b>Time:</b> {current_time}
 
-The Gerko engine is now scanning for high-confidence,
-probability-based XAUUSD setups.
+<b>Active Engines:</b>
+📈 Trend Continuation
+🟢 Support Bounce
+🔴 Resistance Bounce
+🔄 Break & Retest
 
-#GERKO_XAU #GX_SYSTEM
+<b>Timing Protection:</b>
+✅ Current-impulse veto
+✅ Anti-chase filter
+✅ Exhaustion filter
+✅ Breakout-vs-bounce veto
+✅ Early RSI/MACD turn detection
+
+<b>Max Signals:</b> {MAX_SIGNALS_PER_DAY}/day
+<b>Scan Interval:</b> {CHECK_INTERVAL_SECONDS}s
+<b>Timezone:</b> {BOT_TIMEZONE}
+
+#GERKO_XAU
+#GX_SYSTEM
 """.strip()
 
-
-def daily_limit_message() -> str:
-    return f"""
-🧠🛑 <b>GERKO-XAU DAILY LIMIT</b>
-━━━━━━━━━━━━━━━━━━━━
-
-The Gerko engine has reached its daily limit of
-<b>{MAX_SIGNALS_PER_DAY} signals</b>.
-
-No additional Gerko signals will be sent today.
-
-#GERKO_XAU #GX_LIMIT
-""".strip()
-
-
-# ============================================================
-# MAIN APPLICATION
-# ============================================================
 
 def main() -> None:
-    telegram = TelegramBot()
+    print("=" * 60)
+    print("Gerko-XAU Timing Engine started")
+    print("=" * 60)
 
-    model = GerkoXAUModel(
-        min_score=MIN_SCORE,
-    )
+    telegram = TelegramBot()
+    model = GerkoXAUModel()
 
     current_day = now_local().date()
-    sent_today = 0
 
-    last_signal_key: Optional[
-        Tuple[str, float, float, float]
-    ] = None
-
-    last_signal_time: Optional[datetime] = None
-    daily_limit_notification_sent = False
-
-    print("=" * 60)
-    print("Gerko-XAU Quant Bot started")
-    print(f"Symbol: {SYMBOL}")
-    print(f"Timezone: {BOT_TIMEZONE}")
-    print(f"Minimum score: {MIN_SCORE}")
-    print(f"Scan interval: {CHECK_INTERVAL_SECONDS}s")
-    print("=" * 60)
+    signals_today = 0
+    last_key = None
+    last_signal_time = None
 
     if SEND_STARTUP_MESSAGE:
         telegram.send(
-            heartbeat_message()
+            startup_message()
         )
 
     while True:
-        cycle_started = now_local()
+        now = now_local()
 
         try:
-            # Reset daily counters after the local date changes.
-            if cycle_started.date() != current_day:
-                current_day = cycle_started.date()
-                sent_today = 0
-                last_signal_key = None
+            if now.date() != current_day:
+                current_day = now.date()
+
+                signals_today = 0
+                last_key = None
                 last_signal_time = None
-                daily_limit_notification_sent = False
 
                 print(
-                    f"{cycle_started.isoformat()} - "
-                    "New trading day. Counters reset."
+                    "Daily counters reset."
                 )
 
-            if not is_trading_time(cycle_started):
+            if market_closed(now):
                 print(
-                    f"{cycle_started.isoformat()} - "
-                    "Outside Gerko scanning window."
+                    f"{now.isoformat()} - market closed."
                 )
 
                 time.sleep(
@@ -379,18 +320,25 @@ def main() -> None:
 
                 continue
 
-            if sent_today >= MAX_SIGNALS_PER_DAY:
+            if signals_today >= MAX_SIGNALS_PER_DAY:
                 print(
-                    f"{cycle_started.isoformat()} - "
-                    "Maximum daily signals reached."
+                    "Daily signal cap reached."
                 )
 
-                if not daily_limit_notification_sent:
-                    telegram.send(
-                        daily_limit_message()
-                    )
+                time.sleep(
+                    CHECK_INTERVAL_SECONDS
+                )
 
-                    daily_limit_notification_sent = True
+                continue
+
+            if (
+                not trend_window_active(now)
+                and not sr_window_active(now)
+            ):
+                print(
+                    f"{now.isoformat()} "
+                    "- outside active scan windows."
+                )
 
                 time.sleep(
                     CHECK_INTERVAL_SECONDS
@@ -399,21 +347,22 @@ def main() -> None:
                 continue
 
             print(
-                f"{cycle_started.isoformat()} - "
-                "Fetching XAUUSD market data..."
+                f"{now.isoformat()} "
+                "- fetching XAUUSD..."
             )
 
             candles = fetch_all_candles()
 
             signal = model.analyse(
                 candles=candles,
-                signal_time=cycle_started,
+                signal_time=now,
+                allow_trend=trend_window_active(now),
+                allow_sr=sr_window_active(now),
             )
 
             if signal is None:
                 print(
-                    f"{cycle_started.isoformat()} - "
-                    "No Gerko-grade setup."
+                    "No qualified Gerko setup."
                 )
 
                 time.sleep(
@@ -422,14 +371,13 @@ def main() -> None:
 
                 continue
 
-            signal_key = build_signal_key(
+            key = signal_key(
                 signal
             )
 
-            if signal_key == last_signal_key:
+            if key == last_key:
                 print(
-                    f"{cycle_started.isoformat()} - "
-                    "Duplicate Gerko signal ignored."
+                    "Duplicate signal ignored."
                 )
 
                 time.sleep(
@@ -440,11 +388,10 @@ def main() -> None:
 
             if not cooldown_finished(
                 last_signal_time,
-                cycle_started,
+                now,
             ):
                 print(
-                    f"{cycle_started.isoformat()} - "
-                    "Gerko signal cooldown active."
+                    "Signal cooldown active."
                 )
 
                 time.sleep(
@@ -457,43 +404,43 @@ def main() -> None:
                 signal
             )
 
-            message_sent = telegram.send(
+            success = telegram.send(
                 message
             )
 
-            if message_sent:
-                sent_today += 1
-                last_signal_key = signal_key
-                last_signal_time = cycle_started
+            if success:
+                signals_today += 1
+                last_key = key
+                last_signal_time = now
 
                 print(
-                    f"Gerko signal sent: "
+                    f"Signal sent: "
                     f"{signal.signal_id}"
                 )
+
             else:
                 print(
-                    "Gerko setup detected, but Telegram "
-                    "delivery was unsuccessful."
+                    "Signal generated but Telegram "
+                    "delivery failed."
                 )
-
-            print(message)
 
         except KeyboardInterrupt:
             print(
-                "Gerko-XAU Quant Bot stopped manually."
+                "Gerko-XAU stopped."
             )
-
             break
 
         except requests.RequestException as exc:
             print(
-                f"MARKET DATA NETWORK ERROR: {exc}"
+                "NETWORK ERROR:",
+                exc,
             )
 
         except Exception as exc:
             print(
-                f"GERKO BOT ERROR: "
-                f"{type(exc).__name__}: {exc}"
+                "GERKO ERROR:",
+                type(exc).__name__,
+                exc,
             )
 
         time.sleep(
