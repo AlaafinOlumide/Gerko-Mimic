@@ -10,17 +10,53 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-from strategy import GerkoXAUModel, Signal, format_signal
+from strategy import (
+    GerkoXAUModel,
+    Signal,
+    format_signal,
+)
+
 from telegram_bot import TelegramBot
+
 
 load_dotenv()
 
-TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
-SYMBOL = os.getenv("SYMBOL", "XAU/USD").strip()
-CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "180"))
-MAX_SIGNALS_PER_DAY = int(os.getenv("MAX_SIGNALS_PER_DAY", "12"))
-SIGNAL_COOLDOWN_MINUTES = int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "20"))
-BOT_TIMEZONE = os.getenv("BOT_TIMEZONE", "Europe/London").strip()
+
+TWELVE_DATA_API_KEY = os.getenv(
+    "TWELVE_DATA_API_KEY",
+    "",
+).strip()
+
+SYMBOL = os.getenv(
+    "SYMBOL",
+    "XAU/USD",
+).strip()
+
+CHECK_INTERVAL_SECONDS = int(
+    os.getenv(
+        "CHECK_INTERVAL_SECONDS",
+        "180",
+    )
+)
+
+MAX_SIGNALS_PER_DAY = int(
+    os.getenv(
+        "MAX_SIGNALS_PER_DAY",
+        "12",
+    )
+)
+
+SIGNAL_COOLDOWN_MINUTES = int(
+    os.getenv(
+        "SIGNAL_COOLDOWN_MINUTES",
+        "20",
+    )
+)
+
+BOT_TIMEZONE = os.getenv(
+    "BOT_TIMEZONE",
+    "Europe/London",
+).strip()
 
 SEND_STARTUP_MESSAGE = os.getenv(
     "SEND_STARTUP_MESSAGE",
@@ -32,23 +68,44 @@ SEND_STARTUP_MESSAGE = os.getenv(
     "on",
 }
 
+
 try:
-    LOCAL_TIMEZONE = ZoneInfo(BOT_TIMEZONE)
+
+    LOCAL_TIMEZONE = ZoneInfo(
+        BOT_TIMEZONE
+    )
+
 except Exception:
-    LOCAL_TIMEZONE = ZoneInfo("Europe/London")
+
+    LOCAL_TIMEZONE = ZoneInfo(
+        "Europe/London"
+    )
 
 
 def now_local() -> datetime:
-    return datetime.now(LOCAL_TIMEZONE)
+
+    return datetime.now(
+        LOCAL_TIMEZONE
+    )
 
 
 TREND_WINDOWS = [
-    (dtime(23, 0), dtime(3, 0)),
-    (dtime(7, 0), dtime(17, 30)),
+    (
+        dtime(23, 0),
+        dtime(3, 0),
+    ),
+    (
+        dtime(7, 0),
+        dtime(17, 30),
+    ),
 ]
 
+
 SR_WINDOWS = [
-    (dtime(4, 0), dtime(22, 0)),
+    (
+        dtime(4, 0),
+        dtime(22, 0),
+    ),
 ]
 
 
@@ -57,29 +114,55 @@ def inside_window(
     start: dtime,
     end: dtime,
 ) -> bool:
+
     if start <= end:
-        return start <= current <= end
+        return (
+            start
+            <= current
+            <= end
+        )
 
-    return current >= start or current <= end
+    return (
+        current >= start
+        or current <= end
+    )
 
 
-def market_closed(dt: datetime) -> bool:
+def market_closed(
+    dt: datetime,
+) -> bool:
+
     weekday = dt.weekday()
 
-    if weekday == 4 and dt.time() >= dtime(22, 0):
+    if (
+        weekday == 4
+        and
+        dt.time()
+        >= dtime(22, 0)
+    ):
         return True
 
     if weekday == 5:
         return True
 
-    if weekday == 6 and dt.time() < dtime(22, 0):
+    if (
+        weekday == 6
+        and
+        dt.time()
+        < dtime(22, 0)
+    ):
         return True
 
     return False
 
 
-def trend_window_active(dt: datetime) -> bool:
-    if market_closed(dt):
+def trend_window_active(
+    dt: datetime,
+) -> bool:
+
+    if market_closed(
+        dt
+    ):
         return False
 
     return any(
@@ -88,12 +171,18 @@ def trend_window_active(dt: datetime) -> bool:
             start,
             end,
         )
-        for start, end in TREND_WINDOWS
+        for start, end
+        in TREND_WINDOWS
     )
 
 
-def sr_window_active(dt: datetime) -> bool:
-    if market_closed(dt):
+def sr_window_active(
+    dt: datetime,
+) -> bool:
+
+    if market_closed(
+        dt
+    ):
         return False
 
     return any(
@@ -102,7 +191,8 @@ def sr_window_active(dt: datetime) -> bool:
             start,
             end,
         )
-        for start, end in SR_WINDOWS
+        for start, end
+        in SR_WINDOWS
     )
 
 
@@ -110,12 +200,16 @@ def fetch_twelve_data(
     interval: str,
     outputsize: int,
 ) -> pd.DataFrame:
+
     if not TWELVE_DATA_API_KEY:
         raise RuntimeError(
             "TWELVE_DATA_API_KEY is missing."
         )
 
-    url = "https://api.twelvedata.com/time_series"
+    url = (
+        "https://api.twelvedata.com/"
+        "time_series"
+    )
 
     params = {
         "symbol": SYMBOL,
@@ -133,9 +227,14 @@ def fetch_twelve_data(
     )
 
     response.raise_for_status()
+
     payload = response.json()
 
-    if payload.get("status") == "error":
+    if (
+        payload.get("status")
+        == "error"
+    ):
+
         raise RuntimeError(
             payload.get(
                 "message",
@@ -143,14 +242,19 @@ def fetch_twelve_data(
             )
         )
 
-    values = payload.get("values")
+    values = payload.get(
+        "values"
+    )
 
     if not values:
+
         raise RuntimeError(
             f"No {interval} candles returned."
         )
 
-    df = pd.DataFrame(values)
+    df = pd.DataFrame(
+        values
+    )
 
     required = {
         "datetime",
@@ -160,16 +264,24 @@ def fetch_twelve_data(
         "close",
     }
 
-    missing = required - set(df.columns)
+    missing = (
+        required
+        - set(
+            df.columns
+        )
+    )
 
     if missing:
+
         raise RuntimeError(
             f"Missing columns: {missing}"
         )
 
-    df["datetime"] = pd.to_datetime(
-        df["datetime"],
-        errors="coerce",
+    df["datetime"] = (
+        pd.to_datetime(
+            df["datetime"],
+            errors="coerce",
+        )
     )
 
     for column in [
@@ -178,53 +290,78 @@ def fetch_twelve_data(
         "low",
         "close",
     ]:
-        df[column] = pd.to_numeric(
-            df[column],
-            errors="coerce",
+
+        df[column] = (
+            pd.to_numeric(
+                df[column],
+                errors="coerce",
+            )
         )
 
     return (
-        df.dropna()
-        .sort_values("datetime")
+        df
+        .dropna()
+        .sort_values(
+            "datetime"
+        )
         .drop_duplicates(
-            subset=["datetime"],
+            subset=[
+                "datetime"
+            ],
             keep="last",
         )
-        .reset_index(drop=True)
+        .reset_index(
+            drop=True
+        )
     )
 
 
-def fetch_all_candles() -> Dict[str, pd.DataFrame]:
+def fetch_all_candles() -> Dict[
+    str,
+    pd.DataFrame,
+]:
+
     return {
-        "h4": fetch_twelve_data(
-            "4h",
-            300,
-        ),
-        "h1": fetch_twelve_data(
-            "1h",
-            400,
-        ),
-        "m15": fetch_twelve_data(
-            "15min",
-            450,
-        ),
-        "m5": fetch_twelve_data(
-            "5min",
-            450,
-        ),
+
+        "h4":
+            fetch_twelve_data(
+                "4h",
+                300,
+            ),
+
+        "h1":
+            fetch_twelve_data(
+                "1h",
+                400,
+            ),
+
+        "m15":
+            fetch_twelve_data(
+                "15min",
+                450,
+            ),
+
+        "m5":
+            fetch_twelve_data(
+                "5min",
+                450,
+            ),
     }
 
 
 def signal_key(
     signal: Signal,
 ) -> Tuple:
+
     return (
         signal.setup_type,
         signal.side,
+
         round(
             signal.reference_level,
             1,
         ),
+
         round(
             signal.entry_mid,
             1,
@@ -233,22 +370,28 @@ def signal_key(
 
 
 def cooldown_finished(
-    last_time: Optional[datetime],
+    last_time: Optional[
+        datetime
+    ],
     current_time: datetime,
 ) -> bool:
+
     if last_time is None:
         return True
 
     return (
-        current_time - last_time
+        current_time
+        - last_time
     ).total_seconds() >= (
-        SIGNAL_COOLDOWN_MINUTES * 60
+        SIGNAL_COOLDOWN_MINUTES
+        * 60
     )
 
 
 def startup_message() -> str:
+
     return f"""
-🧠⚡ <b>GERKO-XAU TIMING ENGINE ONLINE</b>
+🧠⚡ <b>LumiAj-XAU TIMING ENGINE ONLINE</b>
 ━━━━━━━━━━━━━━━━━━━━━━
 
 <b>Symbol:</b> XAUUSD
@@ -270,48 +413,77 @@ def startup_message() -> str:
 <b>Scan Interval:</b> {CHECK_INTERVAL_SECONDS}s
 <b>Timezone:</b> {BOT_TIMEZONE}
 
-#GERKO_XAU
-#GX_SYSTEM
+#LUMIAJ_XAU
+#LX_SYSTEM
 """.strip()
 
 
 def main() -> None:
-    print("=" * 60)
-    print("Gerko-XAU Timing Engine started")
-    print("=" * 60)
+
+    print(
+        "=" * 60
+    )
+
+    print(
+        "LumiAj-XAU Timing Engine started"
+    )
+
+    print(
+        "=" * 60
+    )
 
     telegram = TelegramBot()
+
     model = GerkoXAUModel()
 
-    current_day = now_local().date()
+    current_day = (
+        now_local().date()
+    )
 
     signals_today = 0
+
     last_key = None
+
     last_signal_time = None
 
     if SEND_STARTUP_MESSAGE:
+
         telegram.send(
             startup_message()
         )
 
     while True:
+
         now = now_local()
 
         try:
-            if now.date() != current_day:
-                current_day = now.date()
+
+            if (
+                now.date()
+                != current_day
+            ):
+
+                current_day = (
+                    now.date()
+                )
 
                 signals_today = 0
+
                 last_key = None
+
                 last_signal_time = None
 
                 print(
                     "Daily counters reset."
                 )
 
-            if market_closed(now):
+            if market_closed(
+                now
+            ):
+
                 print(
-                    f"{now.isoformat()} - market closed."
+                    f"{now.isoformat()} "
+                    "- market closed."
                 )
 
                 time.sleep(
@@ -320,7 +492,11 @@ def main() -> None:
 
                 continue
 
-            if signals_today >= MAX_SIGNALS_PER_DAY:
+            if (
+                signals_today
+                >= MAX_SIGNALS_PER_DAY
+            ):
+
                 print(
                     "Daily signal cap reached."
                 )
@@ -332,9 +508,15 @@ def main() -> None:
                 continue
 
             if (
-                not trend_window_active(now)
-                and not sr_window_active(now)
+                not trend_window_active(
+                    now
+                )
+                and
+                not sr_window_active(
+                    now
+                )
             ):
+
                 print(
                     f"{now.isoformat()} "
                     "- outside active scan windows."
@@ -351,18 +533,31 @@ def main() -> None:
                 "- fetching XAUUSD..."
             )
 
-            candles = fetch_all_candles()
+            candles = (
+                fetch_all_candles()
+            )
 
             signal = model.analyse(
                 candles=candles,
                 signal_time=now,
-                allow_trend=trend_window_active(now),
-                allow_sr=sr_window_active(now),
+
+                allow_trend=(
+                    trend_window_active(
+                        now
+                    )
+                ),
+
+                allow_sr=(
+                    sr_window_active(
+                        now
+                    )
+                ),
             )
 
             if signal is None:
+
                 print(
-                    "No qualified Gerko setup."
+                    "No qualified LumiAj setup."
                 )
 
                 time.sleep(
@@ -376,6 +571,7 @@ def main() -> None:
             )
 
             if key == last_key:
+
                 print(
                     "Duplicate signal ignored."
                 )
@@ -390,6 +586,7 @@ def main() -> None:
                 last_signal_time,
                 now,
             ):
+
                 print(
                     "Signal cooldown active."
                 )
@@ -409,36 +606,44 @@ def main() -> None:
             )
 
             if success:
+
                 signals_today += 1
+
                 last_key = key
+
                 last_signal_time = now
 
                 print(
-                    f"Signal sent: "
+                    f"LumiAj signal sent: "
                     f"{signal.signal_id}"
                 )
 
             else:
+
                 print(
                     "Signal generated but Telegram "
                     "delivery failed."
                 )
 
         except KeyboardInterrupt:
+
             print(
-                "Gerko-XAU stopped."
+                "LumiAj-XAU stopped."
             )
+
             break
 
         except requests.RequestException as exc:
+
             print(
                 "NETWORK ERROR:",
                 exc,
             )
 
         except Exception as exc:
+
             print(
-                "GERKO ERROR:",
+                "LUMIAJ ERROR:",
                 type(exc).__name__,
                 exc,
             )
