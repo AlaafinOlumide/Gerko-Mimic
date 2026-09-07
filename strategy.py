@@ -597,7 +597,7 @@ class GerkoXAUModel:
 
         code = setup_codes.get(
             setup_type,
-            "GX",
+            "LX",
         )
 
         side_code = (
@@ -619,7 +619,7 @@ class GerkoXAUModel:
         )
 
         return (
-            f"GX-{code}-"
+            f"LX-{code}-"
             f"{side_code}-"
             f"{time_code}-"
             f"{random_code}"
@@ -731,7 +731,6 @@ class GerkoXAUModel:
                 > float(h4_last["ema50"])
             ):
                 score += 12
-
                 reasons.append(
                     "H4 price is above EMA50."
                 )
@@ -744,7 +743,6 @@ class GerkoXAUModel:
                 float(h1_last["ema200"])
             ):
                 score += 18
-
                 reasons.append(
                     "H1 bullish EMA structure."
                 )
@@ -773,7 +771,6 @@ class GerkoXAUModel:
                 )
             ):
                 score += 10
-
                 reasons.append(
                     "M15 trend structure is bullish."
                 )
@@ -794,7 +791,6 @@ class GerkoXAUModel:
                 )
             ):
                 score += 8
-
                 reasons.append(
                     "M5 RSI is rising."
                 )
@@ -813,7 +809,6 @@ class GerkoXAUModel:
                 )
             ):
                 score += 8
-
                 reasons.append(
                     "M5 MACD momentum is improving."
                 )
@@ -825,7 +820,6 @@ class GerkoXAUModel:
                 < float(h4_last["ema50"])
             ):
                 score += 12
-
                 reasons.append(
                     "H4 price is below EMA50."
                 )
@@ -838,7 +832,6 @@ class GerkoXAUModel:
                 float(h1_last["ema200"])
             ):
                 score += 18
-
                 reasons.append(
                     "H1 bearish EMA structure."
                 )
@@ -867,7 +860,6 @@ class GerkoXAUModel:
                 )
             ):
                 score += 10
-
                 reasons.append(
                     "M15 trend structure is bearish."
                 )
@@ -888,7 +880,6 @@ class GerkoXAUModel:
                 )
             ):
                 score += 8
-
                 reasons.append(
                     "M5 RSI is falling."
                 )
@@ -907,7 +898,6 @@ class GerkoXAUModel:
                 )
             ):
                 score += 8
-
                 reasons.append(
                     "M5 MACD momentum is weakening."
                 )
@@ -1006,18 +996,15 @@ class GerkoXAUModel:
         )
 
         entry_low = (
-            price
-            - entry_buffer
+            price - entry_buffer
         )
 
         entry_high = (
-            price
-            + entry_buffer
+            price + entry_buffer
         )
 
         entry_mid = (
-            entry_low
-            + entry_high
+            entry_low + entry_high
         ) / 2
 
         if side == "BUY":
@@ -1026,24 +1013,20 @@ class GerkoXAUModel:
                 setup_type
                 == "SUPPORT_BOUNCE"
             ):
+
                 stop_loss = min(
                     reference_level
-                    -
-                    atr_value
-                    * 0.40,
+                    - atr_value * 0.40,
 
                     entry_mid
-                    -
-                    atr_value
-                    * 0.75,
+                    - atr_value * 0.75,
                 )
 
             else:
+
                 stop_loss = (
                     entry_mid
-                    -
-                    atr_value
-                    * 0.80
+                    - atr_value * 0.80
                 )
 
             risk = (
@@ -1052,18 +1035,15 @@ class GerkoXAUModel:
             )
 
             tp1 = (
-                entry_mid
-                + risk
+                entry_mid + risk
             )
 
             tp2 = (
-                entry_mid
-                + risk * 2
+                entry_mid + risk * 2
             )
 
             tp3 = (
-                entry_mid
-                + risk * 3
+                entry_mid + risk * 3
             )
 
             invalidation = (
@@ -1078,24 +1058,20 @@ class GerkoXAUModel:
                 setup_type
                 == "RESISTANCE_BOUNCE"
             ):
+
                 stop_loss = max(
                     reference_level
-                    +
-                    atr_value
-                    * 0.40,
+                    + atr_value * 0.40,
 
                     entry_mid
-                    +
-                    atr_value
-                    * 0.75,
+                    + atr_value * 0.75,
                 )
 
             else:
+
                 stop_loss = (
                     entry_mid
-                    +
-                    atr_value
-                    * 0.80
+                    + atr_value * 0.80
                 )
 
             risk = (
@@ -1104,18 +1080,15 @@ class GerkoXAUModel:
             )
 
             tp1 = (
-                entry_mid
-                - risk
+                entry_mid - risk
             )
 
             tp2 = (
-                entry_mid
-                - risk * 2
+                entry_mid - risk * 2
             )
 
             tp3 = (
-                entry_mid
-                - risk * 3
+                entry_mid - risk * 3
             )
 
             invalidation = (
@@ -1586,32 +1559,32 @@ def format_signal(
 
         "TREND_CONTINUATION":
             (
-                "📈🧠 <b>GERKO-XAU "
+                "📈🧠 <b>LumiAj-XAU "
                 "TREND SIGNAL</b>"
             ),
 
         "SUPPORT_BOUNCE":
             (
-                "🟢🧠 <b>GERKO-XAU "
+                "🟢🧠 <b>LumiAj-XAU "
                 "SUPPORT BOUNCE</b>"
             ),
 
         "RESISTANCE_BOUNCE":
             (
-                "🔴🧠 <b>GERKO-XAU "
+                "🔴🧠 <b>LumiAj-XAU "
                 "RESISTANCE BOUNCE</b>"
             ),
 
         "BREAK_RETEST":
             (
-                "🔄🧠 <b>GERKO-XAU "
+                "🔄🧠 <b>LumiAj-XAU "
                 "BREAK & RETEST</b>"
             ),
     }
 
     header = headers.get(
         signal.setup_type,
-        "🧠 <b>GERKO-XAU SIGNAL</b>",
+        "🧠 <b>LumiAj-XAU SIGNAL</b>",
     )
 
     direction_emoji = (
@@ -1622,35 +1595,31 @@ def format_signal(
 
     reasons = "\n".join(
         f"• {reason}"
-        for reason
-        in signal.reasons
+        for reason in signal.reasons
     )
 
     setup_tag = {
 
         "TREND_CONTINUATION":
-            "#GX_TREND",
+            "#LX_TREND",
 
         "SUPPORT_BOUNCE":
-            "#GX_SUPPORT_BOUNCE",
+            "#LX_SUPPORT_BOUNCE",
 
         "RESISTANCE_BOUNCE":
-            "#GX_RESISTANCE_BOUNCE",
+            "#LX_RESISTANCE_BOUNCE",
 
         "BREAK_RETEST":
-            "#GX_BREAK_RETEST",
+            "#LX_BREAK_RETEST",
 
     }.get(
         signal.setup_type,
-        "#GX_SIGNAL",
+        "#LX_SIGNAL",
     )
 
     level_section = ""
 
-    if (
-        signal.level_touches
-        > 0
-    ):
+    if signal.level_touches > 0:
 
         level_section = f"""
 <b>KEY LEVEL</b>
@@ -1663,7 +1632,7 @@ Strength: {signal.level_strength}/20
 {header}
 ━━━━━━━━━━━━━━━━━━━━━━
 
-<b>GERKO IDENTITY</b>
+<b>LumiAj IDENTITY</b>
 Signal ID: <code>{signal.signal_id}</code>
 Symbol: XAUUSD
 Setup: <b>{signal.setup_name}</b>
@@ -1677,7 +1646,6 @@ HTF Context: <b>{signal.trend_context}</b>
 Current M5 Impulse: <b>{signal.impulse}</b>
 
 {level_section}
-
 <b>ENTRY</b>
 Entry Zone: <b>{signal.entry_low:.2f} – {signal.entry_high:.2f}</b>
 Entry Mid: {signal.entry_mid:.2f}
@@ -1692,7 +1660,7 @@ TP3: {signal.tp3:.2f}
 TP2 R:R: <b>1:{signal.rr:.2f}</b>
 Model Lot Grade: <b>{signal.lot_size:.2f}</b>
 
-<b>WHY GERKO TRIGGERED</b>
+<b>WHY LumiAj TRIGGERED</b>
 {reasons}
 
 <b>INVALIDATION</b>
@@ -1701,7 +1669,7 @@ Model Lot Grade: <b>{signal.lot_size:.2f}</b>
 ⚠️ Anti-chase protection active.
 Do not enter materially outside the stated entry zone.
 
-#GERKO_XAU
+#LUMIAJ_XAU
 {setup_tag}
-#GX_{signal.side}
+#LX_{signal.side}
 """.strip()
