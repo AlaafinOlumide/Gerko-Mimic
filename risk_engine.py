@@ -44,7 +44,7 @@ def classify_signal(
         return RiskDecision(
             allowed=True,
             grade="A+",
-            quality="Elite Gerko Setup",
+            quality="Elite LumiAj Setup",
             lot_size=0.25,
         )
 
@@ -52,7 +52,7 @@ def classify_signal(
         return RiskDecision(
             allowed=True,
             grade="A",
-            quality="Premium Gerko Setup",
+            quality="Premium LumiAj Setup",
             lot_size=0.20,
         )
 
@@ -60,7 +60,7 @@ def classify_signal(
         return RiskDecision(
             allowed=True,
             grade="A-",
-            quality="Strong Gerko Setup",
+            quality="Strong LumiAj Setup",
             lot_size=0.15,
         )
 
@@ -68,13 +68,13 @@ def classify_signal(
         return RiskDecision(
             allowed=True,
             grade="B+",
-            quality="Qualified Gerko Setup",
+            quality="Qualified LumiAj Setup",
             lot_size=0.10,
         )
 
     return RiskDecision(
         allowed=True,
         grade="B",
-        quality="Early Gerko Setup",
+        quality="Early LumiAj Setup",
         lot_size=0.10,
     )
