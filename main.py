@@ -42,7 +42,7 @@ CHECK_INTERVAL_SECONDS = int(
 MAX_SIGNALS_PER_DAY = int(
     os.getenv(
         "MAX_SIGNALS_PER_DAY",
-        "12",
+        "20",
     )
 )
 
