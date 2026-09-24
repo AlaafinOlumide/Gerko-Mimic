@@ -19,6 +19,10 @@ from strategy import (
 from telegram_bot import TelegramBot
 
 
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+
 load_dotenv()
 
 
@@ -30,6 +34,11 @@ TWELVE_DATA_API_KEY = os.getenv(
 SYMBOL = os.getenv(
     "SYMBOL",
     "XAU/USD",
+).strip()
+
+BOT_TIMEZONE = os.getenv(
+    "BOT_TIMEZONE",
+    "Europe/London",
 ).strip()
 
 CHECK_INTERVAL_SECONDS = int(
@@ -53,11 +62,6 @@ SIGNAL_COOLDOWN_MINUTES = int(
     )
 )
 
-BOT_TIMEZONE = os.getenv(
-    "BOT_TIMEZONE",
-    "Europe/London",
-).strip()
-
 SEND_STARTUP_MESSAGE = os.getenv(
     "SEND_STARTUP_MESSAGE",
     "true",
@@ -68,6 +72,39 @@ SEND_STARTUP_MESSAGE = os.getenv(
     "on",
 }
 
+# API protection
+API_CONNECT_TIMEOUT = int(
+    os.getenv(
+        "API_CONNECT_TIMEOUT",
+        "10",
+    )
+)
+
+API_READ_TIMEOUT = int(
+    os.getenv(
+        "API_READ_TIMEOUT",
+        "30",
+    )
+)
+
+API_RETRIES = int(
+    os.getenv(
+        "API_RETRIES",
+        "3",
+    )
+)
+
+API_RETRY_DELAY_SECONDS = int(
+    os.getenv(
+        "API_RETRY_DELAY_SECONDS",
+        "5",
+    )
+)
+
+
+# ============================================================
+# TIMEZONE
+# ============================================================
 
 try:
 
@@ -89,11 +126,17 @@ def now_local() -> datetime:
     )
 
 
+# ============================================================
+# OPERATING WINDOWS
+# ============================================================
+
 TREND_WINDOWS = [
+
     (
         dtime(23, 0),
         dtime(3, 0),
     ),
+
     (
         dtime(7, 0),
         dtime(17, 30),
@@ -102,6 +145,7 @@ TREND_WINDOWS = [
 
 
 SR_WINDOWS = [
+
     (
         dtime(4, 0),
         dtime(22, 0),
@@ -116,6 +160,7 @@ def inside_window(
 ) -> bool:
 
     if start <= end:
+
         return (
             start
             <= current
@@ -128,29 +173,37 @@ def inside_window(
     )
 
 
+# ============================================================
+# MARKET HOURS
+# ============================================================
+
 def market_closed(
     dt: datetime,
 ) -> bool:
 
     weekday = dt.weekday()
 
+    # Friday after 22:00
     if (
         weekday == 4
         and
-        dt.time()
-        >= dtime(22, 0)
+        dt.time() >= dtime(22, 0)
     ):
+
         return True
 
+    # Saturday
     if weekday == 5:
+
         return True
 
+    # Sunday before 22:00
     if (
         weekday == 6
         and
-        dt.time()
-        < dtime(22, 0)
+        dt.time() < dtime(22, 0)
     ):
+
         return True
 
     return False
@@ -163,14 +216,17 @@ def trend_window_active(
     if market_closed(
         dt
     ):
+
         return False
 
     return any(
+
         inside_window(
             dt.time(),
             start,
             end,
         )
+
         for start, end
         in TREND_WINDOWS
     )
@@ -183,17 +239,48 @@ def sr_window_active(
     if market_closed(
         dt
     ):
+
         return False
 
     return any(
+
         inside_window(
             dt.time(),
             start,
             end,
         )
+
         for start, end
         in SR_WINDOWS
     )
+
+
+# ============================================================
+# LOGGING
+# ============================================================
+
+def log(
+    message: str,
+) -> None:
+
+    timestamp = (
+        now_local()
+        .strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+    )
+
+    print(
+        f"{timestamp} | {message}",
+        flush=True,
+    )
+
+
+# ============================================================
+# TWELVE DATA
+# ============================================================
+
+SESSION = requests.Session()
 
 
 def fetch_twelve_data(
@@ -202,6 +289,7 @@ def fetch_twelve_data(
 ) -> pd.DataFrame:
 
     if not TWELVE_DATA_API_KEY:
+
         raise RuntimeError(
             "TWELVE_DATA_API_KEY is missing."
         )
@@ -212,18 +300,33 @@ def fetch_twelve_data(
     )
 
     params = {
-        "symbol": SYMBOL,
-        "interval": interval,
-        "outputsize": outputsize,
-        "apikey": TWELVE_DATA_API_KEY,
-        "format": "JSON",
-        "timezone": BOT_TIMEZONE,
+
+        "symbol":
+            SYMBOL,
+
+        "interval":
+            interval,
+
+        "outputsize":
+            outputsize,
+
+        "apikey":
+            TWELVE_DATA_API_KEY,
+
+        "format":
+            "JSON",
+
+        "timezone":
+            BOT_TIMEZONE,
     }
 
-    response = requests.get(
+    response = SESSION.get(
         url,
         params=params,
-        timeout=30,
+        timeout=(
+            API_CONNECT_TIMEOUT,
+            API_READ_TIMEOUT,
+        ),
     )
 
     response.raise_for_status()
@@ -231,14 +334,19 @@ def fetch_twelve_data(
     payload = response.json()
 
     if (
-        payload.get("status")
+        payload.get(
+            "status"
+        )
         == "error"
     ):
 
         raise RuntimeError(
             payload.get(
                 "message",
-                f"Twelve Data error on {interval}",
+                (
+                    "Twelve Data error "
+                    f"for {interval}"
+                ),
             )
         )
 
@@ -249,7 +357,10 @@ def fetch_twelve_data(
     if not values:
 
         raise RuntimeError(
-            f"No {interval} candles returned."
+            (
+                "No candle data "
+                f"returned for {interval}."
+            )
         )
 
     df = pd.DataFrame(
@@ -257,6 +368,7 @@ def fetch_twelve_data(
     )
 
     required = {
+
         "datetime",
         "open",
         "high",
@@ -274,7 +386,10 @@ def fetch_twelve_data(
     if missing:
 
         raise RuntimeError(
-            f"Missing columns: {missing}"
+            (
+                f"{interval} missing "
+                f"columns: {missing}"
+            )
         )
 
     df["datetime"] = (
@@ -285,10 +400,12 @@ def fetch_twelve_data(
     )
 
     for column in [
+
         "open",
         "high",
         "low",
         "close",
+
     ]:
 
         df[column] = (
@@ -298,7 +415,8 @@ def fetch_twelve_data(
             )
         )
 
-    return (
+    df = (
+
         df
         .dropna()
         .sort_values(
@@ -315,46 +433,187 @@ def fetch_twelve_data(
         )
     )
 
+    if df.empty:
+
+        raise RuntimeError(
+            (
+                f"{interval} dataframe "
+                "is empty after cleaning."
+            )
+        )
+
+    return df
+
+
+# ============================================================
+# RETRY SYSTEM
+# ============================================================
+
+def fetch_with_retry(
+    label: str,
+    interval: str,
+    outputsize: int,
+) -> pd.DataFrame:
+
+    last_error = None
+
+    for attempt in range(
+        1,
+        API_RETRIES + 1,
+    ):
+
+        try:
+
+            log(
+                (
+                    f"FETCH {label} | "
+                    f"{interval} | "
+                    f"attempt "
+                    f"{attempt}/{API_RETRIES}"
+                )
+            )
+
+            started = (
+                time.monotonic()
+            )
+
+            df = fetch_twelve_data(
+                interval,
+                outputsize,
+            )
+
+            elapsed = (
+                time.monotonic()
+                - started
+            )
+
+            latest_candle = (
+                df.iloc[-1][
+                    "datetime"
+                ]
+            )
+
+            log(
+                (
+                    f"FETCH {label} OK | "
+                    f"{len(df)} candles | "
+                    f"latest={latest_candle} | "
+                    f"{elapsed:.2f}s"
+                )
+            )
+
+            return df
+
+        except Exception as exc:
+
+            last_error = exc
+
+            log(
+                (
+                    f"FETCH {label} FAILED | "
+                    f"attempt "
+                    f"{attempt}/{API_RETRIES} | "
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                )
+            )
+
+            if (
+                attempt
+                < API_RETRIES
+            ):
+
+                time.sleep(
+                    API_RETRY_DELAY_SECONDS
+                )
+
+    raise RuntimeError(
+        (
+            f"{label} failed after "
+            f"{API_RETRIES} attempts | "
+            f"last error: {last_error}"
+        )
+    )
+
+
+# ============================================================
+# FETCH ALL TIMEFRAMES
+# ============================================================
 
 def fetch_all_candles() -> Dict[
     str,
     pd.DataFrame,
 ]:
 
-    return {
+    started = (
+        time.monotonic()
+    )
 
-        "h4":
-            fetch_twelve_data(
-                "4h",
-                300,
-            ),
+    log(
+        "MARKET DATA FETCH START"
+    )
 
-        "h1":
-            fetch_twelve_data(
-                "1h",
-                400,
-            ),
+    candles = {}
 
-        "m15":
-            fetch_twelve_data(
-                "15min",
-                450,
-            ),
+    candles["h4"] = (
+        fetch_with_retry(
+            "H4",
+            "4h",
+            300,
+        )
+    )
 
-        "m5":
-            fetch_twelve_data(
-                "5min",
-                450,
-            ),
-    }
+    candles["h1"] = (
+        fetch_with_retry(
+            "H1",
+            "1h",
+            400,
+        )
+    )
 
+    candles["m15"] = (
+        fetch_with_retry(
+            "M15",
+            "15min",
+            450,
+        )
+    )
+
+    candles["m5"] = (
+        fetch_with_retry(
+            "M5",
+            "5min",
+            450,
+        )
+    )
+
+    elapsed = (
+        time.monotonic()
+        - started
+    )
+
+    log(
+        (
+            "MARKET DATA FETCH COMPLETE | "
+            f"{elapsed:.2f}s"
+        )
+    )
+
+    return candles
+
+
+# ============================================================
+# SIGNAL DUPLICATE PROTECTION
+# ============================================================
 
 def signal_key(
     signal: Signal,
 ) -> Tuple:
 
     return (
+
         signal.setup_type,
+
         signal.side,
 
         round(
@@ -369,6 +628,10 @@ def signal_key(
     )
 
 
+# ============================================================
+# COOLDOWN
+# ============================================================
+
 def cooldown_finished(
     last_time: Optional[
         datetime
@@ -377,16 +640,27 @@ def cooldown_finished(
 ) -> bool:
 
     if last_time is None:
+
         return True
 
-    return (
+    elapsed = (
         current_time
         - last_time
-    ).total_seconds() >= (
+    ).total_seconds()
+
+    required = (
         SIGNAL_COOLDOWN_MINUTES
         * 60
     )
 
+    return (
+        elapsed >= required
+    )
+
+
+# ============================================================
+# STARTUP MESSAGE
+# ============================================================
 
 def startup_message() -> str:
 
@@ -408,8 +682,12 @@ def startup_message() -> str:
 ✅ Exhaustion filter
 ✅ Breakout-vs-bounce veto
 ✅ Early RSI/MACD turn detection
+✅ API retry protection
+✅ Data-fetch diagnostics
+✅ Worker heartbeat
 
 <b>Max Signals:</b> {MAX_SIGNALS_PER_DAY}/day
+<b>Signal Cooldown:</b> {SIGNAL_COOLDOWN_MINUTES} minutes
 <b>Scan Interval:</b> {CHECK_INTERVAL_SECONDS}s
 <b>Timezone:</b> {BOT_TIMEZONE}
 
@@ -418,23 +696,41 @@ def startup_message() -> str:
 """.strip()
 
 
+# ============================================================
+# MAIN ENGINE
+# ============================================================
+
 def main() -> None:
 
-    print(
+    log(
         "=" * 60
     )
 
-    print(
-        "LumiAj-XAU Timing Engine started"
+    log(
+        "LumiAj-XAU Timing Engine starting"
     )
 
-    print(
+    log(
+        (
+            f"Timezone={BOT_TIMEZONE} | "
+            f"scan={CHECK_INTERVAL_SECONDS}s | "
+            f"daily_cap={MAX_SIGNALS_PER_DAY} | "
+            f"cooldown="
+            f"{SIGNAL_COOLDOWN_MINUTES}m"
+        )
+    )
+
+    log(
         "=" * 60
     )
 
-    telegram = TelegramBot()
+    telegram = (
+        TelegramBot()
+    )
 
-    model = GerkoXAUModel()
+    model = (
+        GerkoXAUModel()
+    )
 
     current_day = (
         now_local().date()
@@ -446,17 +742,57 @@ def main() -> None:
 
     last_signal_time = None
 
+    scan_number = 0
+
     if SEND_STARTUP_MESSAGE:
 
-        telegram.send(
-            startup_message()
-        )
+        try:
+
+            telegram.send(
+                startup_message()
+            )
+
+        except Exception as exc:
+
+            log(
+                (
+                    "STARTUP TELEGRAM ERROR | "
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                )
+            )
+
+    # ========================================================
+    # CONTINUOUS WORKER LOOP
+    # ========================================================
 
     while True:
 
-        now = now_local()
+        scan_number += 1
+
+        scan_started = (
+            time.monotonic()
+        )
+
+        now = (
+            now_local()
+        )
 
         try:
+
+            log(
+                (
+                    f"HEARTBEAT | "
+                    f"scan={scan_number} | "
+                    f"signals="
+                    f"{signals_today}/"
+                    f"{MAX_SIGNALS_PER_DAY}"
+                )
+            )
+
+            # --------------------------------------------
+            # DAILY RESET
+            # --------------------------------------------
 
             if (
                 now.date()
@@ -473,17 +809,26 @@ def main() -> None:
 
                 last_signal_time = None
 
-                print(
-                    "Daily counters reset."
+                log(
+                    "NEW DAY | counters reset"
                 )
+
+            # --------------------------------------------
+            # MARKET CLOSED
+            # --------------------------------------------
 
             if market_closed(
                 now
             ):
 
-                print(
-                    f"{now.isoformat()} "
-                    "- market closed."
+                log(
+                    (
+                        "MARKET CLOSED | "
+                        f"weekday="
+                        f"{now.strftime('%A')} | "
+                        f"time="
+                        f"{now.strftime('%H:%M:%S')}"
+                    )
                 )
 
                 time.sleep(
@@ -491,14 +836,22 @@ def main() -> None:
                 )
 
                 continue
+
+            # --------------------------------------------
+            # DAILY SIGNAL CAP
+            # --------------------------------------------
 
             if (
                 signals_today
                 >= MAX_SIGNALS_PER_DAY
             ):
 
-                print(
-                    "Daily signal cap reached."
+                log(
+                    (
+                        "DAILY SIGNAL CAP | "
+                        f"{signals_today}/"
+                        f"{MAX_SIGNALS_PER_DAY}"
+                    )
                 )
 
                 time.sleep(
@@ -506,20 +859,39 @@ def main() -> None:
                 )
 
                 continue
+
+            # --------------------------------------------
+            # ACTIVE WINDOWS
+            # --------------------------------------------
+
+            trend_active = (
+                trend_window_active(
+                    now
+                )
+            )
+
+            sr_active = (
+                sr_window_active(
+                    now
+                )
+            )
+
+            log(
+                (
+                    "WINDOW STATUS | "
+                    f"trend={trend_active} | "
+                    f"sr={sr_active}"
+                )
+            )
 
             if (
-                not trend_window_active(
-                    now
-                )
+                not trend_active
                 and
-                not sr_window_active(
-                    now
-                )
+                not sr_active
             ):
 
-                print(
-                    f"{now.isoformat()} "
-                    "- outside active scan windows."
+                log(
+                    "OUTSIDE ACTIVE SCAN WINDOWS"
                 )
 
                 time.sleep(
@@ -528,130 +900,326 @@ def main() -> None:
 
                 continue
 
-            print(
-                f"{now.isoformat()} "
-                "- fetching XAUUSD..."
+            # --------------------------------------------
+            # MARKET DATA
+            # --------------------------------------------
+
+            log(
+                "SCAN START | fetching XAUUSD"
             )
 
             candles = (
                 fetch_all_candles()
             )
 
+            # --------------------------------------------
+            # ANALYSIS
+            # --------------------------------------------
+
+            log(
+                "ANALYSIS START"
+            )
+
+            analysis_started = (
+                time.monotonic()
+            )
+
             signal = model.analyse(
+
                 candles=candles,
+
                 signal_time=now,
 
                 allow_trend=(
-                    trend_window_active(
-                        now
-                    )
+                    trend_active
                 ),
 
                 allow_sr=(
-                    sr_window_active(
-                        now
-                    )
+                    sr_active
                 ),
             )
 
+            analysis_elapsed = (
+                time.monotonic()
+                - analysis_started
+            )
+
+            log(
+                (
+                    "ANALYSIS COMPLETE | "
+                    f"{analysis_elapsed:.2f}s"
+                )
+            )
+
+            # --------------------------------------------
+            # NO SIGNAL
+            # --------------------------------------------
+
             if signal is None:
 
-                print(
-                    "No qualified LumiAj setup."
-                )
-
-                time.sleep(
-                    CHECK_INTERVAL_SECONDS
-                )
-
-                continue
-
-            key = signal_key(
-                signal
-            )
-
-            if key == last_key:
-
-                print(
-                    "Duplicate signal ignored."
-                )
-
-                time.sleep(
-                    CHECK_INTERVAL_SECONDS
-                )
-
-                continue
-
-            if not cooldown_finished(
-                last_signal_time,
-                now,
-            ):
-
-                print(
-                    "Signal cooldown active."
-                )
-
-                time.sleep(
-                    CHECK_INTERVAL_SECONDS
-                )
-
-                continue
-
-            message = format_signal(
-                signal
-            )
-
-            success = telegram.send(
-                message
-            )
-
-            if success:
-
-                signals_today += 1
-
-                last_key = key
-
-                last_signal_time = now
-
-                print(
-                    f"LumiAj signal sent: "
-                    f"{signal.signal_id}"
+                log(
+                    "NO QUALIFIED LUMIAJ SETUP"
                 )
 
             else:
 
-                print(
-                    "Signal generated but Telegram "
-                    "delivery failed."
+                log(
+                    (
+                        "CANDIDATE FOUND | "
+                        f"{signal.setup_type} | "
+                        f"{signal.side} | "
+                        f"score={signal.score} | "
+                        f"id={signal.signal_id}"
+                    )
                 )
+
+                key = (
+                    signal_key(
+                        signal
+                    )
+                )
+
+                # ----------------------------------------
+                # DUPLICATE
+                # ----------------------------------------
+
+                if (
+                    key
+                    == last_key
+                ):
+
+                    log(
+                        (
+                            "SIGNAL REJECTED | "
+                            "duplicate"
+                        )
+                    )
+
+                # ----------------------------------------
+                # COOLDOWN
+                # ----------------------------------------
+
+                elif not cooldown_finished(
+                    last_signal_time,
+                    now,
+                ):
+
+                    if (
+                        last_signal_time
+                        is not None
+                    ):
+
+                        elapsed_minutes = (
+
+                            (
+                                now
+                                - last_signal_time
+                            )
+                            .total_seconds()
+                            / 60
+                        )
+
+                    else:
+
+                        elapsed_minutes = 0
+
+                    log(
+                        (
+                            "SIGNAL REJECTED | "
+                            "cooldown active | "
+                            f"{elapsed_minutes:.1f}/"
+                            f"{SIGNAL_COOLDOWN_MINUTES}m"
+                        )
+                    )
+
+                # ----------------------------------------
+                # SEND SIGNAL
+                # ----------------------------------------
+
+                else:
+
+                    message = (
+                        format_signal(
+                            signal
+                        )
+                    )
+
+                    log(
+                        (
+                            "TELEGRAM SEND START | "
+                            f"{signal.signal_id}"
+                        )
+                    )
+
+                    send_started = (
+                        time.monotonic()
+                    )
+
+                    success = (
+                        telegram.send(
+                            message
+                        )
+                    )
+
+                    send_elapsed = (
+                        time.monotonic()
+                        - send_started
+                    )
+
+                    if success:
+
+                        signals_today += 1
+
+                        last_key = key
+
+                        last_signal_time = now
+
+                        log(
+                            (
+                                "SIGNAL SENT | "
+                                f"{signal.signal_id} | "
+                                f"{signal.side} | "
+                                f"score={signal.score} | "
+                                f"signals_today="
+                                f"{signals_today}/"
+                                f"{MAX_SIGNALS_PER_DAY} | "
+                                f"telegram="
+                                f"{send_elapsed:.2f}s"
+                            )
+                        )
+
+                    else:
+
+                        log(
+                            (
+                                "TELEGRAM DELIVERY "
+                                "FAILED | "
+                                f"{signal.signal_id}"
+                            )
+                        )
+
+        # ====================================================
+        # MANUAL STOP
+        # ====================================================
 
         except KeyboardInterrupt:
 
-            print(
-                "LumiAj-XAU stopped."
+            log(
+                "LumiAj-XAU manually stopped."
             )
 
             break
 
+        # ====================================================
+        # NETWORK FAILURE
+        # ====================================================
+
+        except requests.Timeout as exc:
+
+            log(
+                (
+                    "REQUEST TIMEOUT | "
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                )
+            )
+
         except requests.RequestException as exc:
 
-            print(
-                "NETWORK ERROR:",
-                exc,
+            log(
+                (
+                    "NETWORK ERROR | "
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                )
             )
+
+        # ====================================================
+        # ANY OTHER FAILURE
+        # ====================================================
 
         except Exception as exc:
 
-            print(
-                "LUMIAJ ERROR:",
-                type(exc).__name__,
-                exc,
+            log(
+                (
+                    "SCAN ERROR | "
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                )
             )
+
+        # ====================================================
+        # SCAN FINISHED
+        # ====================================================
+
+        finally:
+
+            elapsed = (
+                time.monotonic()
+                - scan_started
+            )
+
+            log(
+                (
+                    f"SCAN COMPLETE | "
+                    f"scan={scan_number} | "
+                    f"elapsed={elapsed:.2f}s"
+                )
+            )
+
+        # ====================================================
+        # NEXT SCAN
+        # ====================================================
+
+        log(
+            (
+                "NEXT SCAN | "
+                f"{CHECK_INTERVAL_SECONDS}s"
+            )
+        )
 
         time.sleep(
             CHECK_INTERVAL_SECONDS
         )
 
 
+# ============================================================
+# START
+# ============================================================
+
 if __name__ == "__main__":
-    main()
+
+    while True:
+
+        try:
+
+            main()
+
+            break
+
+        except KeyboardInterrupt:
+
+            break
+
+        except Exception as exc:
+
+            print(
+                (
+                    "FATAL WORKER ERROR | "
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                ),
+                flush=True,
+            )
+
+            print(
+                (
+                    "Restarting LumiAj engine "
+                    "in 15 seconds..."
+                ),
+                flush=True,
+            )
+
+            time.sleep(
+                15
+            )
