@@ -20,14 +20,21 @@ from sr_engine import (
 
 
 # ============================================================
-# CONFIG
+# LUMIAJ-XAU STRATEGY CONFIGURATION
 # ============================================================
 
-TREND_MIN_SCORE = int(os.getenv("TREND_MIN_SCORE", "76"))
-SR_MIN_SCORE = int(os.getenv("SR_MIN_SCORE", "74"))
+TREND_MIN_SCORE = int(
+    os.getenv("TREND_MIN_SCORE", "76")
+)
+
+SR_MIN_SCORE = int(
+    os.getenv("SR_MIN_SCORE", "74")
+)
+
 COUNTERTREND_SR_MIN_SCORE = int(
     os.getenv("COUNTERTREND_SR_MIN_SCORE", "84")
 )
+
 BREAK_RETEST_MIN_SCORE = int(
     os.getenv("BREAK_RETEST_MIN_SCORE", "76")
 )
@@ -35,11 +42,16 @@ BREAK_RETEST_MIN_SCORE = int(
 MAX_TREND_CHASE_ATR = float(
     os.getenv("MAX_TREND_CHASE_ATR", "0.65")
 )
+
 MAX_SR_CHASE_ATR = float(
     os.getenv("MAX_SR_CHASE_ATR", "0.45")
 )
 
-# Range engine
+
+# ============================================================
+# RANGE MARKET CONFIGURATION
+# ============================================================
+
 RANGE_MIN_SCORE = int(
     os.getenv("RANGE_MIN_SCORE", "76")
 )
@@ -66,7 +78,7 @@ RANGE_BREAK_BUFFER_ATR = float(
 
 
 # ============================================================
-# SIGNAL DATACLASS
+# SIGNAL OBJECT
 # ============================================================
 
 @dataclass
@@ -111,7 +123,7 @@ class Signal:
 
 
 # ============================================================
-# RISK / RR
+# RISK / REWARD
 # ============================================================
 
 def calculate_rr(
@@ -122,6 +134,9 @@ def calculate_rr(
 ) -> float:
     """
     Calculate reward-to-risk ratio.
+
+    This deliberately lives inside strategy.py.
+    risk_engine.py only handles signal classification.
     """
 
     side = side.upper().strip()
@@ -135,19 +150,28 @@ def calculate_rr(
         reward = entry - target
 
     else:
-        raise ValueError("side must be BUY or SELL")
+        raise ValueError(
+            "side must be BUY or SELL"
+        )
 
     if risk <= 0 or reward <= 0:
         return 0.0
 
-    return round(reward / risk, 2)
+    return round(
+        reward / risk,
+        2,
+    )
 
 
 # ============================================================
 # INDICATORS
 # ============================================================
 
-def ema(series: pd.Series, period: int) -> pd.Series:
+def ema(
+    series: pd.Series,
+    period: int,
+) -> pd.Series:
+
     return series.ewm(
         span=period,
         adjust=False,
@@ -162,8 +186,13 @@ def rsi(
 
     delta = series.diff()
 
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
+    gain = delta.clip(
+        lower=0
+    )
+
+    loss = -delta.clip(
+        upper=0
+    )
 
     avg_gain = gain.ewm(
         alpha=1 / period,
@@ -177,23 +206,50 @@ def rsi(
         min_periods=period,
     ).mean()
 
-    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rs = (
+        avg_gain
+        / avg_loss.replace(
+            0,
+            np.nan,
+        )
+    )
 
-    result = 100 - (100 / (1 + rs))
+    result = 100 - (
+        100 / (1 + rs)
+    )
 
     return result.fillna(50)
 
 
-def true_range(df: pd.DataFrame) -> pd.Series:
+def true_range(
+    df: pd.DataFrame,
+) -> pd.Series:
 
-    previous_close = df["close"].shift(1)
+    previous_close = (
+        df["close"].shift(1)
+    )
 
-    tr1 = df["high"] - df["low"]
-    tr2 = (df["high"] - previous_close).abs()
-    tr3 = (df["low"] - previous_close).abs()
+    tr1 = (
+        df["high"]
+        - df["low"]
+    )
+
+    tr2 = (
+        df["high"]
+        - previous_close
+    ).abs()
+
+    tr3 = (
+        df["low"]
+        - previous_close
+    ).abs()
 
     return pd.concat(
-        [tr1, tr2, tr3],
+        [
+            tr1,
+            tr2,
+            tr3,
+        ],
         axis=1,
     ).max(axis=1)
 
@@ -247,7 +303,10 @@ def adx(
 
     plus_dm = pd.Series(
         np.where(
-            (up_move > down_move) & (up_move > 0),
+            (
+                (up_move > down_move)
+                & (up_move > 0)
+            ),
             up_move,
             0.0,
         ),
@@ -256,7 +315,10 @@ def adx(
 
     minus_dm = pd.Series(
         np.where(
-            (down_move > up_move) & (down_move > 0),
+            (
+                (down_move > up_move)
+                & (down_move > 0)
+            ),
             down_move,
             0.0,
         ),
@@ -277,7 +339,10 @@ def adx(
             alpha=1 / period,
             adjust=False,
         ).mean()
-        / atr_value.replace(0, np.nan)
+        / atr_value.replace(
+            0,
+            np.nan,
+        )
     )
 
     minus_di = (
@@ -286,16 +351,24 @@ def adx(
             alpha=1 / period,
             adjust=False,
         ).mean()
-        / atr_value.replace(0, np.nan)
+        / atr_value.replace(
+            0,
+            np.nan,
+        )
     )
 
     denominator = (
         plus_di + minus_di
-    ).replace(0, np.nan)
+    ).replace(
+        0,
+        np.nan,
+    )
 
     dx = (
         100
-        * (plus_di - minus_di).abs()
+        * (
+            plus_di - minus_di
+        ).abs()
         / denominator
     )
 
@@ -306,7 +379,9 @@ def adx(
     ).mean().fillna(0)
 
 
-def enrich(df: pd.DataFrame) -> pd.DataFrame:
+def enrich(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
 
     data = df.copy()
 
@@ -322,11 +397,15 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
         "close",
     }
 
-    missing = required - set(data.columns)
+    missing = (
+        required
+        - set(data.columns)
+    )
 
     if missing:
         raise ValueError(
-            f"Missing OHLC columns: {sorted(missing)}"
+            f"Missing OHLC columns: "
+            f"{sorted(missing)}"
         )
 
     for column in [
@@ -365,8 +444,10 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
         14,
     )
 
-    data["macd_histogram"] = macd_histogram(
-        data["close"]
+    data["macd_histogram"] = (
+        macd_histogram(
+            data["close"]
+        )
     )
 
     data["adx"] = adx(
@@ -399,8 +480,13 @@ def current_impulse(
     latest = m5.iloc[-1]
     previous = m5.iloc[-2]
 
-    close = float(latest["close"])
-    ema20_value = float(latest["ema20"])
+    close = float(
+        latest["close"]
+    )
+
+    ema20_value = float(
+        latest["ema20"]
+    )
 
     macd_now = float(
         latest["macd_histogram"]
@@ -410,13 +496,23 @@ def current_impulse(
         previous["macd_histogram"]
     )
 
-    rsi_now = float(latest["rsi"])
-    rsi_previous = float(previous["rsi"])
+    rsi_now = float(
+        latest["rsi"]
+    )
 
-    atr_value = float(latest["atr"])
+    rsi_previous = float(
+        previous["rsi"]
+    )
 
-    move = close - float(
-        m5.iloc[-4]["close"]
+    atr_value = float(
+        latest["atr"]
+    )
+
+    move = (
+        close
+        - float(
+            m5.iloc[-4]["close"]
+        )
     )
 
     bullish = (
@@ -443,7 +539,7 @@ def current_impulse(
 
 
 # ============================================================
-# EXHAUSTION / CHASE PROTECTION
+# EXHAUSTION PROTECTION
 # ============================================================
 
 def trigger_exhausted(
@@ -461,7 +557,9 @@ def trigger_exhausted(
         - float(latest["low"])
     )
 
-    atr_value = float(latest["atr"])
+    atr_value = float(
+        latest["atr"]
+    )
 
     if atr_value <= 0:
         return False
@@ -471,12 +569,16 @@ def trigger_exhausted(
         - float(latest["open"])
     )
 
-    # Very large trigger candle.
-    if candle_range >= atr_value * 1.8:
+    # Oversized trigger candle.
+    if candle_range >= (
+        atr_value * 1.80
+    ):
         return True
 
-    # Large body with little remaining room.
-    if body >= atr_value * 1.35:
+    # Oversized body.
+    if body >= (
+        atr_value * 1.35
+    ):
         return True
 
     return False
@@ -495,7 +597,7 @@ def chase_distance(
 
 
 # ============================================================
-# RANGE DETECTION
+# RANGE REGIME DETECTION
 # ============================================================
 
 def range_regime(
@@ -504,7 +606,10 @@ def range_regime(
     atr_value: float,
 ) -> Optional[dict]:
 
-    if len(m15) < 60 or len(h1) < 60:
+    if (
+        len(m15) < 60
+        or len(h1) < 60
+    ):
         return None
 
     if atr_value <= 0:
@@ -520,12 +625,18 @@ def range_regime(
         recent_m15["low"].min()
     )
 
-    width = range_high - range_low
+    width = (
+        range_high
+        - range_low
+    )
 
     if width <= 0:
         return None
 
-    width_atr = width / atr_value
+    width_atr = (
+        width
+        / atr_value
+    )
 
     if not (
         RANGE_MIN_WIDTH_ATR
@@ -545,35 +656,56 @@ def range_regime(
     if h1_adx > RANGE_ADX_MAX:
         return None
 
-    if m15_adx > RANGE_ADX_MAX + 3:
+    if m15_adx > (
+        RANGE_ADX_MAX + 3
+    ):
         return None
 
     h1_slope = abs(
-        float(h1.iloc[-1]["ema50"])
-        - float(h1.iloc[-6]["ema50"])
+        float(
+            h1.iloc[-1]["ema50"]
+        )
+        - float(
+            h1.iloc[-6]["ema50"]
+        )
     )
 
     m15_slope = abs(
-        float(m15.iloc[-1]["ema50"])
-        - float(m15.iloc[-6]["ema50"])
+        float(
+            m15.iloc[-1]["ema50"]
+        )
+        - float(
+            m15.iloc[-6]["ema50"]
+        )
     )
 
-    if h1_slope > atr_value * 0.35:
+    if h1_slope > (
+        atr_value * 0.35
+    ):
         return None
 
-    if m15_slope > atr_value * 0.45:
+    if m15_slope > (
+        atr_value * 0.45
+    ):
         return None
 
     price = float(
         m15.iloc[-1]["close"]
     )
 
-    buffer = atr_value * RANGE_BREAK_BUFFER_ATR
+    buffer = (
+        atr_value
+        * RANGE_BREAK_BUFFER_ATR
+    )
 
-    if price < range_low - buffer:
+    if price < (
+        range_low - buffer
+    ):
         return None
 
-    if price > range_high + buffer:
+    if price > (
+        range_high + buffer
+    ):
         return None
 
     return {
@@ -627,15 +759,19 @@ def range_breaking(
     )
 
     bullish_break = (
-        latest_close > high + buffer
+        latest_close
+        > high + buffer
         and previous_close > high
-        and latest_macd > previous_macd
+        and latest_macd
+        > previous_macd
     )
 
     bearish_break = (
-        latest_close < low - buffer
+        latest_close
+        < low - buffer
         and previous_close < low
-        and latest_macd < previous_macd
+        and latest_macd
+        < previous_macd
     )
 
     return bool(
@@ -645,7 +781,7 @@ def range_breaking(
 
 
 # ============================================================
-# RANGE EDGE SIGNAL
+# RANGE EDGE REVERSAL
 # ============================================================
 
 def range_signal(
@@ -655,7 +791,10 @@ def range_signal(
     atr_value: float,
 ) -> Optional[dict]:
 
-    if len(m15) < 3 or len(m5) < 3:
+    if (
+        len(m15) < 3
+        or len(m5) < 3
+    ):
         return None
 
     latest = m5.iloc[-1]
@@ -668,25 +807,31 @@ def range_signal(
     range_high = range_info["high"]
     range_low = range_info["low"]
 
-    edge_distance_low = (
-        abs(price - range_low)
+    edge_distance_low = abs(
+        price - range_low
     )
 
-    edge_distance_high = (
-        abs(range_high - price)
+    edge_distance_high = abs(
+        range_high - price
     )
 
     near_support = (
         edge_distance_low
-        <= atr_value * RANGE_EDGE_ATR
+        <= atr_value
+        * RANGE_EDGE_ATR
     )
 
     near_resistance = (
         edge_distance_high
-        <= atr_value * RANGE_EDGE_ATR
+        <= atr_value
+        * RANGE_EDGE_ATR
     )
 
-    if not near_support and not near_resistance:
+    # Never trade the middle of the range.
+    if (
+        not near_support
+        and not near_resistance
+    ):
         return None
 
     latest_open = float(
@@ -714,16 +859,20 @@ def range_signal(
     )
 
     candle_range = (
-        latest_high - latest_low
+        latest_high
+        - latest_low
     )
 
     if candle_range <= 0:
         return None
 
-    lower_wick = min(
-        latest_open,
-        latest_close
-    ) - latest_low
+    lower_wick = (
+        min(
+            latest_open,
+            latest_close,
+        )
+        - latest_low
+    )
 
     upper_wick = (
         latest_high
@@ -760,75 +909,97 @@ def range_signal(
         m15_previous["rsi"]
     )
 
-    # --------------------------------------------------------
-    # SUPPORT REVERSION
-    # --------------------------------------------------------
+    # ========================================================
+    # RANGE SUPPORT -> BUY
+    # ========================================================
 
     if near_support:
 
         score = 0
         reasons = []
 
-        # Price is actually holding the range low.
+        # Support location.
         score += 15
+
         reasons.append(
             "Price holding range support"
         )
 
-        # Bullish rejection candle.
+        # Bullish rejection.
         bullish_rejection = (
             latest_close > latest_open
-            and lower_wick >= candle_range * 0.30
+            and lower_wick
+            >= candle_range * 0.30
         )
 
         if bullish_rejection:
+
             score += 10
+
             reasons.append(
                 "Bullish M5 rejection"
             )
 
-        # Reclaim previous candle high.
+        # Prior high reclaim.
         if latest_close > previous_high:
+
             score += 15
+
             reasons.append(
                 "M5 reclaimed prior high"
             )
 
-        # RSI turning upward.
+        # RSI turn.
         if rsi_now > rsi_previous:
+
             score += 10
+
             reasons.append(
                 "M5 RSI rising"
             )
 
-        # MACD improving.
+        # MACD turn.
         if macd_now > macd_previous:
+
             score += 10
+
             reasons.append(
                 "M5 MACD improving"
             )
 
-        # M15 stabilising.
-        if m15_rsi_now >= m15_rsi_previous:
+        # M15 stabilisation.
+        if (
+            m15_rsi_now
+            >= m15_rsi_previous
+        ):
+
             score += 5
+
             reasons.append(
                 "M15 momentum stabilising"
             )
 
-        # Sweep/reclaim.
+        # Sweep and reclaim.
         if (
             latest_low < range_low
             and latest_close > range_low
         ):
+
             score += 15
+
             reasons.append(
                 "Support sweep and reclaim"
             )
 
-        # Enough room to opposite edge.
-        room = range_high - price
+        # Need sufficient room.
+        room = (
+            range_high
+            - price
+        )
 
-        if room < atr_value * 1.20:
+        if room < (
+            atr_value * 1.20
+        ):
             return None
 
         if score < RANGE_MIN_SCORE:
@@ -841,9 +1012,9 @@ def range_signal(
             "reasons": reasons,
         }
 
-    # --------------------------------------------------------
-    # RESISTANCE REVERSION
-    # --------------------------------------------------------
+    # ========================================================
+    # RANGE RESISTANCE -> SELL
+    # ========================================================
 
     if near_resistance:
 
@@ -851,57 +1022,85 @@ def range_signal(
         reasons = []
 
         score += 15
+
         reasons.append(
             "Price holding range resistance"
         )
 
         bearish_rejection = (
             latest_close < latest_open
-            and upper_wick >= candle_range * 0.30
+            and upper_wick
+            >= candle_range * 0.30
         )
 
         if bearish_rejection:
+
             score += 10
+
             reasons.append(
                 "Bearish M5 rejection"
             )
 
+        # Prior low break.
         if latest_close < previous_low:
+
             score += 15
+
             reasons.append(
                 "M5 reclaimed prior low"
             )
 
+        # RSI weakening.
         if rsi_now < rsi_previous:
+
             score += 10
+
             reasons.append(
                 "M5 RSI falling"
             )
 
+        # MACD weakening.
         if macd_now < macd_previous:
+
             score += 10
+
             reasons.append(
                 "M5 MACD weakening"
             )
 
-        if m15_rsi_now <= m15_rsi_previous:
+        # M15 stabilisation.
+        if (
+            m15_rsi_now
+            <= m15_rsi_previous
+        ):
+
             score += 5
+
             reasons.append(
                 "M15 momentum stabilising"
             )
 
+        # Sweep and rejection.
         if (
             latest_high > range_high
             and latest_close < range_high
         ):
+
             score += 15
+
             reasons.append(
                 "Resistance sweep and rejection"
             )
 
-        room = price - range_low
+        # Need sufficient room.
+        room = (
+            price
+            - range_low
+        )
 
-        if room < atr_value * 1.20:
+        if room < (
+            atr_value * 1.20
+        ):
             return None
 
         if score < RANGE_MIN_SCORE:
@@ -918,7 +1117,7 @@ def range_signal(
 
 
 # ============================================================
-# MODEL
+# LUMIAJ-XAU MODEL
 # ============================================================
 
 class GerkoXAUModel:
@@ -1000,6 +1199,7 @@ class GerkoXAUModel:
         }:
             return None
 
+        # Current M5 impulse must agree.
         if impulse != context:
             return None
 
@@ -1030,7 +1230,8 @@ class GerkoXAUModel:
         )
 
         distance = abs(
-            close - ema20_value
+            close
+            - ema20_value
         )
 
         # Anti-chase.
@@ -1043,50 +1244,76 @@ class GerkoXAUModel:
         score = 0
         reasons = []
 
+        # ====================================================
+        # BUY TREND
+        # ====================================================
+
         if context == "BULLISH":
 
             score += 20
+
             reasons.append(
                 "H4/H1/M15 bullish structure"
             )
 
             if close > ema20_value:
+
                 score += 10
+
                 reasons.append(
                     "Price above M5 EMA20"
                 )
 
             if rsi_now > rsi_previous:
+
                 score += 10
+
                 reasons.append(
                     "M5 RSI turning higher"
                 )
 
             if macd_now > macd_previous:
+
                 score += 10
+
                 reasons.append(
                     "M5 MACD improving"
                 )
 
             if (
-                float(m15.iloc[-1]["close"])
-                > float(m15.iloc[-1]["ema20"])
+                float(
+                    m15.iloc[-1]["close"]
+                )
+                >
+                float(
+                    m15.iloc[-1]["ema20"]
+                )
             ):
+
                 score += 10
+
                 reasons.append(
                     "M15 momentum bullish"
                 )
 
             if (
-                float(h1.iloc[-1]["close"])
-                > float(h1.iloc[-1]["ema20"])
+                float(
+                    h1.iloc[-1]["close"]
+                )
+                >
+                float(
+                    h1.iloc[-1]["ema20"]
+                )
             ):
+
                 score += 10
+
                 reasons.append(
                     "H1 momentum bullish"
                 )
 
             score += 10
+
             reasons.append(
                 "Current M5 impulse confirms BUY"
             )
@@ -1097,48 +1324,74 @@ class GerkoXAUModel:
                 "reasons": reasons,
             }
 
+        # ====================================================
+        # SELL TREND
+        # ====================================================
+
         score += 20
+
         reasons.append(
             "H4/H1/M15 bearish structure"
         )
 
         if close < ema20_value:
+
             score += 10
+
             reasons.append(
                 "Price below M5 EMA20"
             )
 
         if rsi_now < rsi_previous:
+
             score += 10
+
             reasons.append(
                 "M5 RSI turning lower"
             )
 
         if macd_now < macd_previous:
+
             score += 10
+
             reasons.append(
                 "M5 MACD weakening"
             )
 
         if (
-            float(m15.iloc[-1]["close"])
-            < float(m15.iloc[-1]["ema20"])
+            float(
+                m15.iloc[-1]["close"]
+            )
+            <
+            float(
+                m15.iloc[-1]["ema20"]
+            )
         ):
+
             score += 10
+
             reasons.append(
                 "M15 momentum bearish"
             )
 
         if (
-            float(h1.iloc[-1]["close"])
-            < float(h1.iloc[-1]["ema20"])
+            float(
+                h1.iloc[-1]["close"]
+            )
+            <
+            float(
+                h1.iloc[-1]["ema20"]
+            )
         ):
+
             score += 10
+
             reasons.append(
                 "H1 momentum bearish"
             )
 
         score += 10
+
         reasons.append(
             "Current M5 impulse confirms SELL"
         )
@@ -1185,18 +1438,72 @@ class GerkoXAUModel:
             latest["close"]
         )
 
-        # Entry zone.
-        entry_buffer = atr_value * 0.08
+        if atr_value <= 0:
+            return None
+
+        # ====================================================
+        # REFERENCE LEVEL
+        # ====================================================
+        #
+        # TREND setups don't have an SRLevel.
+        # Therefore use current price as the reference.
+        #
+
+        if level is None:
+
+            reference_price = close
+
+            level_strength = 0
+            level_touches = 0
+
+        else:
+
+            reference_price = float(
+                level.price
+            )
+
+            level_strength = int(
+                getattr(
+                    level,
+                    "strength",
+                    0,
+                )
+            )
+
+            level_touches = int(
+                getattr(
+                    level,
+                    "touches",
+                    0,
+                )
+            )
+
+        # ====================================================
+        # ENTRY
+        # ====================================================
+
+        entry_buffer = (
+            atr_value * 0.08
+        )
 
         if side == "BUY":
+
             entry_low = close
-            entry_high = close + entry_buffer
+
+            entry_high = (
+                close
+                + entry_buffer
+            )
+
             entry_mid = (
-                entry_low + entry_high
+                entry_low
+                + entry_high
             ) / 2
 
+            # Structural reference plus
+            # minimum protective distance.
             stop_loss = min(
-                float(level.price)
+                reference_price
                 - atr_value * 0.30,
                 entry_mid
                 - atr_value * 0.75,
@@ -1207,19 +1514,40 @@ class GerkoXAUModel:
                 - stop_loss
             )
 
-            tp1 = entry_mid + risk
-            tp2 = entry_mid + risk * 1.5
-            tp3 = entry_mid + risk * 2.0
+            if risk <= 0:
+                return None
+
+            tp1 = (
+                entry_mid
+                + risk
+            )
+
+            tp2 = (
+                entry_mid
+                + risk * 1.50
+            )
+
+            tp3 = (
+                entry_mid
+                + risk * 2.00
+            )
 
         else:
+
             entry_high = close
-            entry_low = close - entry_buffer
+
+            entry_low = (
+                close
+                - entry_buffer
+            )
+
             entry_mid = (
-                entry_low + entry_high
+                entry_low
+                + entry_high
             ) / 2
 
             stop_loss = max(
-                float(level.price)
+                reference_price
                 + atr_value * 0.30,
                 entry_mid
                 + atr_value * 0.75,
@@ -1230,9 +1558,23 @@ class GerkoXAUModel:
                 - entry_mid
             )
 
-            tp1 = entry_mid - risk
-            tp2 = entry_mid - risk * 1.5
-            tp3 = entry_mid - risk * 2.0
+            if risk <= 0:
+                return None
+
+            tp1 = (
+                entry_mid
+                - risk
+            )
+
+            tp2 = (
+                entry_mid
+                - risk * 1.50
+            )
+
+            tp3 = (
+                entry_mid
+                - risk * 2.00
+            )
 
         rr = calculate_rr(
             entry_mid,
@@ -1274,15 +1616,12 @@ class GerkoXAUModel:
             quality=decision.quality,
             trend_context=context,
             impulse=impulse,
-            reference_level=float(
-                level.price
+            reference_level=round(
+                reference_price,
+                2,
             ),
-            level_strength=int(
-                level.strength
-            ),
-            level_touches=int(
-                level.touches
-            ),
+            level_strength=level_strength,
+            level_touches=level_touches,
             entry_low=round(
                 entry_low,
                 2,
@@ -1356,15 +1695,27 @@ class GerkoXAUModel:
             latest["close"]
         )
 
-        side = range_candidate["side"]
+        if atr_value <= 0:
+            return None
+
+        side = range_candidate[
+            "side"
+        ]
 
         level = float(
-            range_candidate["level"]
+            range_candidate[
+                "level"
+            ]
         )
+
+        # ====================================================
+        # BUY RANGE REVERSAL
+        # ====================================================
 
         if side == "BUY":
 
             entry_low = close
+
             entry_high = (
                 close
                 + atr_value * 0.08
@@ -1387,33 +1738,50 @@ class GerkoXAUModel:
                 - stop_loss
             )
 
+            if risk <= 0:
+                return None
+
             room = (
                 range_info["high"]
                 - entry_mid
             )
 
-            tp1 = entry_mid + min(
-                risk,
-                room * 0.50,
+            tp1 = (
+                entry_mid
+                + min(
+                    risk,
+                    room * 0.50,
+                )
             )
 
-            tp2 = entry_mid + min(
-                risk * 1.50,
-                room * 0.85,
+            tp2 = (
+                entry_mid
+                + min(
+                    risk * 1.50,
+                    room * 0.85,
+                )
             )
 
-            tp3 = entry_mid + min(
-                risk * 2.00,
-                room * 0.95,
+            tp3 = (
+                entry_mid
+                + min(
+                    risk * 2.00,
+                    room * 0.95,
+                )
             )
 
             setup_name = (
                 "Range Support Reversion"
             )
 
+        # ====================================================
+        # SELL RANGE REVERSAL
+        # ====================================================
+
         else:
 
             entry_high = close
+
             entry_low = (
                 close
                 - atr_value * 0.08
@@ -1436,24 +1804,36 @@ class GerkoXAUModel:
                 - entry_mid
             )
 
+            if risk <= 0:
+                return None
+
             room = (
                 entry_mid
                 - range_info["low"]
             )
 
-            tp1 = entry_mid - min(
-                risk,
-                room * 0.50,
+            tp1 = (
+                entry_mid
+                - min(
+                    risk,
+                    room * 0.50,
+                )
             )
 
-            tp2 = entry_mid - min(
-                risk * 1.50,
-                room * 0.85,
+            tp2 = (
+                entry_mid
+                - min(
+                    risk * 1.50,
+                    room * 0.85,
+                )
             )
 
-            tp3 = entry_mid - min(
-                risk * 2.00,
-                room * 0.95,
+            tp3 = (
+                entry_mid
+                - min(
+                    risk * 2.00,
+                    room * 0.95,
+                )
             )
 
             setup_name = (
@@ -1538,7 +1918,7 @@ class GerkoXAUModel:
         )
 
     # ========================================================
-    # ANALYSE
+    # MAIN ANALYSIS
     # ========================================================
 
     def analyse(
@@ -1549,9 +1929,9 @@ class GerkoXAUModel:
         m5: pd.DataFrame,
     ) -> Optional[Signal]:
 
-        # ----------------------------------------------------
-        # ENRICH
-        # ----------------------------------------------------
+        # ====================================================
+        # ENRICH ALL TIMEFRAMES
+        # ====================================================
 
         h4 = enrich(h4)
         h1 = enrich(h1)
@@ -1564,7 +1944,6 @@ class GerkoXAUModel:
             len(m15),
             len(m5),
         ) < 100:
-
             return None
 
         latest = m5.iloc[-1]
@@ -1576,6 +1955,10 @@ class GerkoXAUModel:
         if atr_value <= 0:
             return None
 
+        # ====================================================
+        # MARKET CONTEXT
+        # ====================================================
+
         context = self.trend_context(
             h4,
             h1,
@@ -1586,69 +1969,67 @@ class GerkoXAUModel:
             m5
         )
 
-        # ----------------------------------------------------
-        # CURRENT IMPULSE PROTECTION
-        # ----------------------------------------------------
-
-        # If the latest M5 move is clearly bullish,
-        # don't issue a stale SELL based on old resistance.
-        #
-        # If clearly bearish, don't issue stale BUY.
-        #
-        # Range reversals are handled separately because
-        # they intentionally anticipate turns at range edges.
-
-        # ----------------------------------------------------
-        # EXHAUSTION PROTECTION
-        # ----------------------------------------------------
+        # ====================================================
+        # TRIGGER CANDLE EXHAUSTION
+        # ====================================================
 
         exhausted = trigger_exhausted(
             m5,
             impulse,
         )
 
-        # ----------------------------------------------------
-        # CANDIDATES
-        # ----------------------------------------------------
-
         candidates = []
 
         # ====================================================
-        # TREND
+        # TREND CONTINUATION
         # ====================================================
 
-        trend_candidate = self.trend_signal(
-            h4,
-            h1,
-            m15,
-            m5,
-            context,
-            impulse,
-            atr_value,
+        trend_candidate = (
+            self.trend_signal(
+                h4,
+                h1,
+                m15,
+                m5,
+                context,
+                impulse,
+                atr_value,
+            )
         )
 
         if trend_candidate:
 
             if not exhausted:
 
-                candidate = {
-                    "type": "TREND",
-                    "name": "Trend Continuation",
-                    "side": trend_candidate["side"],
-                    "score": trend_candidate["score"],
-                    "reasons": trend_candidate[
-                        "reasons"
-                    ],
-                    "level": None,
-                    "minimum": TREND_MIN_SCORE,
-                }
-
                 candidates.append(
-                    candidate
+                    {
+                        "type": "TREND",
+                        "name": (
+                            "Trend Continuation"
+                        ),
+                        "side": (
+                            trend_candidate[
+                                "side"
+                            ]
+                        ),
+                        "score": (
+                            trend_candidate[
+                                "score"
+                            ]
+                        ),
+                        "reasons": (
+                            trend_candidate[
+                                "reasons"
+                            ]
+                        ),
+                        "level": None,
+                        "minimum": (
+                            TREND_MIN_SCORE
+                        ),
+                    }
                 )
 
         # ====================================================
-        # SUPPORT / RESISTANCE
+        # SUPPORT / RESISTANCE LEVELS
         # ====================================================
 
         h1_levels = build_levels(
@@ -1669,9 +2050,9 @@ class GerkoXAUModel:
             atr_value,
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # SUPPORT BOUNCE
-        # ----------------------------------------------------
+        # ====================================================
 
         support = detect_support_bounce(
             m5,
@@ -1683,15 +2064,17 @@ class GerkoXAUModel:
 
         if support.detected:
 
-            side = "BUY"
-
-            # Do not take a stale counter-direction setup
-            # unless it is exceptionally strong.
             minimum = SR_MIN_SCORE
 
+            # Countertrend support BUY
+            # requires stronger confirmation.
             if context == "BEARISH":
-                minimum = COUNTERTREND_SR_MIN_SCORE
+                minimum = (
+                    COUNTERTREND_SR_MIN_SCORE
+                )
 
+            # Current M5 impulse is more important
+            # than stale support.
             if impulse == "BEARISH":
                 minimum = max(
                     minimum,
@@ -1702,43 +2085,61 @@ class GerkoXAUModel:
                 not exhausted
                 and support.score >= minimum
                 and chase_distance(m5)
-                <= atr_value
-                * MAX_SR_CHASE_ATR
+                <= (
+                    atr_value
+                    * MAX_SR_CHASE_ATR
+                )
             ):
 
                 candidates.append(
                     {
-                        "type": "SUPPORT_BOUNCE",
-                        "name": "Support Bounce",
-                        "side": side,
-                        "score": support.score,
-                        "reasons": support.reasons,
-                        "level": support.level,
+                        "type": (
+                            "SUPPORT_BOUNCE"
+                        ),
+                        "name": (
+                            "Support Bounce"
+                        ),
+                        "side": "BUY",
+                        "score": (
+                            support.score
+                        ),
+                        "reasons": (
+                            support.reasons
+                        ),
+                        "level": (
+                            support.level
+                        ),
                         "minimum": minimum,
                     }
                 )
 
-        # ----------------------------------------------------
+        # ====================================================
         # RESISTANCE BOUNCE
-        # ----------------------------------------------------
+        # ====================================================
 
-        resistance = detect_resistance_bounce(
-            m5,
-            m15,
-            h1,
-            levels,
-            atr_value,
+        resistance = (
+            detect_resistance_bounce(
+                m5,
+                m15,
+                h1,
+                levels,
+                atr_value,
+            )
         )
 
         if resistance.detected:
 
-            side = "SELL"
-
             minimum = SR_MIN_SCORE
 
+            # Countertrend resistance SELL
+            # requires stronger confirmation.
             if context == "BULLISH":
-                minimum = COUNTERTREND_SR_MIN_SCORE
+                minimum = (
+                    COUNTERTREND_SR_MIN_SCORE
+                )
 
+            # Current M5 impulse is more important
+            # than stale resistance.
             if impulse == "BULLISH":
                 minimum = max(
                     minimum,
@@ -1749,24 +2150,36 @@ class GerkoXAUModel:
                 not exhausted
                 and resistance.score >= minimum
                 and chase_distance(m5)
-                <= atr_value
-                * MAX_SR_CHASE_ATR
+                <= (
+                    atr_value
+                    * MAX_SR_CHASE_ATR
+                )
             ):
 
                 candidates.append(
                     {
-                        "type": "RESISTANCE_BOUNCE",
-                        "name": "Resistance Bounce",
-                        "side": side,
-                        "score": resistance.score,
-                        "reasons": resistance.reasons,
-                        "level": resistance.level,
+                        "type": (
+                            "RESISTANCE_BOUNCE"
+                        ),
+                        "name": (
+                            "Resistance Bounce"
+                        ),
+                        "side": "SELL",
+                        "score": (
+                            resistance.score
+                        ),
+                        "reasons": (
+                            resistance.reasons
+                        ),
+                        "level": (
+                            resistance.level
+                        ),
                         "minimum": minimum,
                     }
                 )
 
         # ====================================================
-        # RANGE ENGINE
+        # RANGE MARKET
         # ====================================================
 
         range_info = range_regime(
@@ -1777,25 +2190,30 @@ class GerkoXAUModel:
 
         if range_info:
 
-            # A clean breakout overrides range reversion.
-            range_is_breaking = range_breaking(
-                m15,
-                range_info,
-                atr_value,
+            # Clean breakout means:
+            # DO NOT fade the range.
+            range_is_breaking = (
+                range_breaking(
+                    m15,
+                    range_info,
+                    atr_value,
+                )
             )
 
             if not range_is_breaking:
 
-                range_candidate = range_signal(
-                    m15,
-                    m5,
-                    range_info,
-                    atr_value,
+                range_candidate = (
+                    range_signal(
+                        m15,
+                        m5,
+                        range_info,
+                        atr_value,
+                    )
                 )
 
                 if range_candidate:
 
-                    range_signal_obj = (
+                    range_obj = (
                         self.create_range_signal(
                             range_candidate,
                             range_info,
@@ -1805,74 +2223,90 @@ class GerkoXAUModel:
                         )
                     )
 
-                    if range_signal_obj:
+                    if range_obj:
 
-                        return range_signal_obj
+                        return range_obj
 
         # ====================================================
         # BREAK & RETEST
         # ====================================================
 
-        break_retest = detect_break_retest(
-            m5,
-            m15,
-            h1,
-            levels,
-            atr_value,
+        break_retest = (
+            detect_break_retest(
+                m5,
+                m15,
+                h1,
+                levels,
+                atr_value,
+            )
         )
 
         if break_retest.detected:
 
             if (
                 not exhausted
-                and break_retest.score
-                >= BREAK_RETEST_MIN_SCORE
+                and (
+                    break_retest.score
+                    >= BREAK_RETEST_MIN_SCORE
+                )
             ):
 
-                # Current impulse must agree with breakout.
-                if (
-                    break_retest.side
-                    == "BUY"
-                    and impulse != "BEARISH"
-                ) or (
-                    break_retest.side
-                    == "SELL"
-                    and impulse != "BULLISH"
-                ):
+                # Breakout direction must agree
+                # with current M5 momentum.
+                direction_allowed = (
+                    (
+                        break_retest.side
+                        == "BUY"
+                        and impulse
+                        != "BEARISH"
+                    )
+                    or
+                    (
+                        break_retest.side
+                        == "SELL"
+                        and impulse
+                        != "BULLISH"
+                    )
+                )
+
+                if direction_allowed:
 
                     candidates.append(
                         {
-                            "type": "BREAK_RETEST",
-                            "name": "Break & Retest",
-                            "side": break_retest.side,
-                            "score": break_retest.score,
-                            "reasons": break_retest.reasons,
-                            "level": break_retest.level,
-                            "minimum": BREAK_RETEST_MIN_SCORE,
+                            "type": (
+                                "BREAK_RETEST"
+                            ),
+                            "name": (
+                                "Break & Retest"
+                            ),
+                            "side": (
+                                break_retest.side
+                            ),
+                            "score": (
+                                break_retest.score
+                            ),
+                            "reasons": (
+                                break_retest.reasons
+                            ),
+                            "level": (
+                                break_retest.level
+                            ),
+                            "minimum": (
+                                BREAK_RETEST_MIN_SCORE
+                            ),
                         }
                     )
 
         # ====================================================
-        # NO CANDIDATES
+        # NO QUALIFIED SETUP
         # ====================================================
 
         if not candidates:
             return None
 
         # ====================================================
-        # SORT
+        # CANDIDATE PRIORITY
         # ====================================================
-
-        # Higher score first.
-        #
-        # If scores are tied:
-        #   1. Non-trend setup preferred.
-        #   2. Range reversal preferred.
-        #   3. Break/retest next.
-        #
-        # This helps prevent the model from choosing a
-        # late trend continuation when a cleaner structural
-        # opportunity exists.
 
         priority = {
             "RANGE_REVERSION": 5,
@@ -1896,7 +2330,7 @@ class GerkoXAUModel:
         best = candidates[0]
 
         # ====================================================
-        # FINAL SIGNAL
+        # BUILD FINAL SIGNAL
         # ====================================================
 
         return self.create_signal(
@@ -1913,7 +2347,7 @@ class GerkoXAUModel:
         )
 
     # ========================================================
-    # FORMAT TELEGRAM SIGNAL
+    # TELEGRAM FORMATTER
     # ========================================================
 
     def format_signal(
@@ -1922,38 +2356,63 @@ class GerkoXAUModel:
     ) -> str:
 
         if signal.setup_type == "TREND":
+
             header = (
                 "📈🧠 "
                 "<b>LumiAj-XAU TREND SIGNAL</b>"
             )
+
             setup_tag = "#LX_TREND"
 
-        elif signal.setup_type == "SUPPORT_BOUNCE":
+        elif (
+            signal.setup_type
+            == "SUPPORT_BOUNCE"
+        ):
+
             header = (
                 "🟢🧠 "
                 "<b>LumiAj-XAU SUPPORT BOUNCE</b>"
             )
-            setup_tag = "#LX_SUPPORT_BOUNCE"
 
-        elif signal.setup_type == "RESISTANCE_BOUNCE":
+            setup_tag = (
+                "#LX_SUPPORT_BOUNCE"
+            )
+
+        elif (
+            signal.setup_type
+            == "RESISTANCE_BOUNCE"
+        ):
+
             header = (
                 "🔴🧠 "
                 "<b>LumiAj-XAU RESISTANCE BOUNCE</b>"
             )
-            setup_tag = "#LX_RESISTANCE_BOUNCE"
 
-        elif signal.setup_type == "BREAK_RETEST":
+            setup_tag = (
+                "#LX_RESISTANCE_BOUNCE"
+            )
+
+        elif (
+            signal.setup_type
+            == "BREAK_RETEST"
+        ):
+
             header = (
                 "🔄🧠 "
                 "<b>LumiAj-XAU BREAK & RETEST</b>"
             )
-            setup_tag = "#LX_BREAK_RETEST"
+
+            setup_tag = (
+                "#LX_BREAK_RETEST"
+            )
 
         else:
+
             header = (
                 "↔️🧠 "
                 "<b>LumiAj-XAU RANGE REVERSAL</b>"
             )
+
             setup_tag = "#LX_RANGE"
 
         reasons_text = "\n".join(
@@ -1978,6 +2437,7 @@ class GerkoXAUModel:
 
             f"🧭 Trend Context: "
             f"<b>{signal.trend_context}</b>\n"
+
             f"⚡ Current M5 Impulse: "
             f"<b>{signal.impulse}</b>\n\n"
 
@@ -2021,3 +2481,28 @@ class GerkoXAUModel:
             f"{setup_tag}\n"
             f"#LX_{signal.side}"
         )
+
+
+# ============================================================
+# MODULE-LEVEL FORMATTER
+# ============================================================
+#
+# IMPORTANT:
+# main.py imports format_signal directly:
+#
+# from strategy import format_signal
+#
+# Therefore this function MUST exist outside the class.
+# ============================================================
+
+def format_signal(
+    signal: Signal,
+) -> str:
+
+    model = GerkoXAUModel(
+        symbol=signal.symbol
+    )
+
+    return model.format_signal(
+        signal
+    )
