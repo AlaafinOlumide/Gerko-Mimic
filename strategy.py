@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import os
 import uuid
 from dataclasses import dataclass
@@ -119,7 +120,7 @@ class Signal:
 
 
 # ============================================================
-# BASIC INDICATORS
+# INDICATORS
 # ============================================================
 
 def ema(
@@ -169,11 +170,11 @@ def rsi(
         )
     )
 
-    value = 100 - (
+    result = 100 - (
         100 / (1 + rs)
     )
 
-    return value.fillna(50)
+    return result.fillna(50)
 
 
 def true_range(
@@ -411,30 +412,6 @@ def enrich(
 
 
 # ============================================================
-# RISK / RR
-# ============================================================
-
-def calculate_rr(
-    entry: float,
-    stop: float,
-    target: float,
-) -> float:
-
-    risk = abs(
-        entry - stop
-    )
-
-    if risk <= 0:
-        return 0.0
-
-    reward = abs(
-        target - entry
-    )
-
-    return reward / risk
-
-
-# ============================================================
 # SAFE DATA HELPERS
 # ============================================================
 
@@ -472,16 +449,6 @@ def _get_candle_frame(
     keys: tuple[str, ...],
     fallback,
 ):
-    """
-    Safely retrieve a DataFrame from the candles dictionary.
-
-    IMPORTANT:
-    Never use:
-        candles.get("m5") or fallback
-
-    because pandas DataFrames cannot be evaluated
-    as booleans.
-    """
 
     for key in keys:
 
@@ -493,6 +460,114 @@ def _get_candle_frame(
             return value
 
     return fallback
+
+
+# ============================================================
+# SAFE SR ENGINE CALLER
+# ============================================================
+
+def _call_sr_function(
+    function,
+    available: dict,
+    engine_name: str,
+):
+    """
+    Calls an existing sr_engine function using the parameters
+    that the function actually declares.
+
+    This prevents strategy.py from making assumptions about
+    the exact sr_engine function signatures.
+    """
+
+    try:
+
+        signature = inspect.signature(
+            function
+        )
+
+        parameters = list(
+            signature.parameters.values()
+        )
+
+        args = []
+
+        aliases = {
+            "df": ["m5"],
+            "data": ["m5"],
+            "candles": ["m5"],
+            "m5": ["m5"],
+            "m15": ["m15"],
+            "h1": ["h1"],
+            "levels": ["levels"],
+            "sr_levels": ["levels"],
+            "atr": ["atr"],
+            "atr_value": ["atr"],
+            "volatility": ["atr"],
+            "price": ["price"],
+        }
+
+        for parameter in parameters:
+
+            if parameter.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
+                continue
+
+            name = parameter.name.lower()
+
+            matched = False
+
+            for source_key in aliases.get(
+                name,
+                [],
+            ):
+
+                if source_key in available:
+
+                    args.append(
+                        available[source_key]
+                    )
+
+                    matched = True
+
+                    break
+
+            if matched:
+                continue
+
+            # If the parameter has a default, allow the
+            # sr_engine function to use it.
+            if (
+                parameter.default
+                is not inspect.Parameter.empty
+            ):
+                continue
+
+            raise TypeError(
+                f"{engine_name} parameter "
+                f"'{parameter.name}' could not "
+                f"be mapped."
+            )
+
+        print(
+            f"{engine_name} CALL | "
+            f"args={len(args)} | "
+            f"signature={signature}"
+        )
+
+        return function(
+            *args
+        )
+
+    except Exception as exc:
+
+        print(
+            f"{engine_name} CALL ERROR | "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+        return None
 
 
 # ============================================================
@@ -647,6 +722,30 @@ def chase_distance(
 
 
 # ============================================================
+# RR
+# ============================================================
+
+def calculate_rr(
+    entry: float,
+    stop: float,
+    target: float,
+) -> float:
+
+    risk = abs(
+        entry - stop
+    )
+
+    if risk <= 0:
+        return 0.0
+
+    reward = abs(
+        target - entry
+    )
+
+    return reward / risk
+
+
+# ============================================================
 # MODEL
 # ============================================================
 
@@ -665,9 +764,9 @@ class GerkoXAUModel:
 
     def trend_context(
         self,
-        h1: pd.DataFrame,
-        m15: pd.DataFrame,
-        m5: pd.DataFrame,
+        h1,
+        m15,
+        m5,
     ) -> str:
 
         h1_close = _last(
@@ -735,17 +834,17 @@ class GerkoXAUModel:
         return "NEUTRAL"
 
     # ========================================================
-    # TREND CONTINUATION
+    # TREND SIGNAL
     # ========================================================
 
     def trend_signal(
         self,
-        h4: pd.DataFrame,
-        h1: pd.DataFrame,
-        m15: pd.DataFrame,
-        m5: pd.DataFrame,
-        context: str,
-        impulse: str,
+        h4,
+        h1,
+        m15,
+        m5,
+        context,
+        impulse,
     ):
 
         if context == "NEUTRAL":
@@ -763,7 +862,6 @@ class GerkoXAUModel:
             else "SELL"
         )
 
-        # Current M5 direction must agree.
         if side != impulse:
             return None
 
@@ -792,11 +890,9 @@ class GerkoXAUModel:
             / atr_value
         )
 
-        # Anti-chase.
         if distance > MAX_TREND_CHASE_ATR:
             return None
 
-        # Avoid entering after an oversized trigger candle.
         if trigger_exhausted(
             m5,
             side,
@@ -850,49 +946,37 @@ class GerkoXAUModel:
         if side == "BUY":
 
             if h1_close > h1_ema50:
-
                 score += 15
-
                 reasons.append(
                     "H1 price above EMA50"
                 )
 
             if h1_ema50 > h1_ema100:
-
                 score += 12
-
                 reasons.append(
                     "H1 EMA structure bullish"
                 )
 
             if m15_close > m15_ema50:
-
                 score += 12
-
                 reasons.append(
                     "M15 price above EMA50"
                 )
 
             if m15_ema20 > m15_ema50:
-
                 score += 8
-
                 reasons.append(
                     "M15 short-term structure bullish"
                 )
 
             if 50 <= m5_rsi <= 68:
-
                 score += 12
-
                 reasons.append(
                     "M5 RSI supports continuation"
                 )
 
             if m5_macd > 0:
-
                 score += 10
-
                 reasons.append(
                     "M5 MACD momentum positive"
                 )
@@ -906,49 +990,37 @@ class GerkoXAUModel:
         else:
 
             if h1_close < h1_ema50:
-
                 score += 15
-
                 reasons.append(
                     "H1 price below EMA50"
                 )
 
             if h1_ema50 < h1_ema100:
-
                 score += 12
-
                 reasons.append(
                     "H1 EMA structure bearish"
                 )
 
             if m15_close < m15_ema50:
-
                 score += 12
-
                 reasons.append(
                     "M15 price below EMA50"
                 )
 
             if m15_ema20 < m15_ema50:
-
                 score += 8
-
                 reasons.append(
                     "M15 short-term structure bearish"
                 )
 
             if 32 <= m5_rsi <= 50:
-
                 score += 12
-
                 reasons.append(
                     "M5 RSI supports continuation"
                 )
 
             if m5_macd < 0:
-
                 score += 10
-
                 reasons.append(
                     "M5 MACD momentum negative"
                 )
@@ -1035,9 +1107,9 @@ class GerkoXAUModel:
 
     def range_regime(
         self,
-        h1: pd.DataFrame,
-        m15: pd.DataFrame,
-        m5: pd.DataFrame,
+        h1,
+        m15,
+        m5,
     ):
 
         if (
@@ -1410,7 +1482,7 @@ class GerkoXAUModel:
         }
 
     # ========================================================
-    # SUPPORT / RESISTANCE
+    # S/R SIGNAL
     # ========================================================
 
     def sr_signal(
@@ -1530,14 +1602,12 @@ class GerkoXAUModel:
         if distance > MAX_SR_CHASE_ATR:
             return None
 
-        # A normal S/R reversal must not fight a strong
-        # current M5 impulse.
         if (
             impulse in (
                 "BUY",
                 "SELL",
             )
-            and impulse != side
+            and side != impulse
             and not countertrend
         ):
             return None
@@ -1888,26 +1958,21 @@ class GerkoXAUModel:
         ]
 
         if setup_type == "TC":
-
             minimum = TREND_MIN_SCORE
 
         elif setup_type in (
             "SB",
             "RB",
         ):
-
             minimum = SR_MIN_SCORE
 
         elif setup_type == "BR":
-
             minimum = BREAK_RETEST_MIN_SCORE
 
         elif setup_type == "RG":
-
             minimum = RANGE_MIN_SCORE
 
         else:
-
             minimum = 76
 
         decision = classify_signal(
@@ -1919,14 +1984,12 @@ class GerkoXAUModel:
             return None
 
         if signal_time is None:
-
             created = datetime.now()
 
         elif isinstance(
             signal_time,
             datetime,
         ):
-
             created = signal_time
 
         else:
@@ -2062,13 +2125,7 @@ class GerkoXAUModel:
         )
 
     # ========================================================
-    # ANALYSE
-    #
-    # IMPORTANT:
-    # - accepts candles
-    # - accepts signal_time
-    # - accepts **kwargs for compatibility
-    # - never uses DataFrame in boolean expressions
+    # ANALYSIS
     # ========================================================
 
     def analyse(
@@ -2083,7 +2140,7 @@ class GerkoXAUModel:
     ):
 
         # ----------------------------------------------------
-        # COMPATIBILITY WITH MAIN.PY
+        # CANDLE COMPATIBILITY
         # ----------------------------------------------------
 
         if candles is not None:
@@ -2092,13 +2149,6 @@ class GerkoXAUModel:
                 candles,
                 dict,
             ):
-
-                # IMPORTANT:
-                # Do NOT use:
-                #
-                # candles.get("m5") or m5
-                #
-                # because DataFrames have no boolean truth value.
 
                 h4 = _get_candle_frame(
                     candles,
@@ -2145,7 +2195,7 @@ class GerkoXAUModel:
                     m5 = candles
 
         # ----------------------------------------------------
-        # REQUIRED TIMEFRAMES
+        # REQUIRED DATA
         # ----------------------------------------------------
 
         if (
@@ -2182,7 +2232,7 @@ class GerkoXAUModel:
             return None
 
         # ----------------------------------------------------
-        # CURRENT STATE
+        # CURRENT MARKET STATE
         # ----------------------------------------------------
 
         context = self.trend_context(
@@ -2213,7 +2263,6 @@ class GerkoXAUModel:
         if trend is not None:
 
             trend["trend_context"] = context
-
             trend["impulse"] = impulse
 
             candidates.append(
@@ -2221,18 +2270,18 @@ class GerkoXAUModel:
             )
 
         # ====================================================
-        # 2. SUPPORT / RESISTANCE
+        # 2. BUILD S/R LEVELS
         # ====================================================
 
         levels = None
 
-        try:
+        atr_value = _last(
+            m5,
+            "atr",
+            0.0,
+        )
 
-            atr_value = _last(
-                m5,
-                "atr",
-                0.0,
-            )
+        try:
 
             h1_levels = build_levels(
                 h1,
@@ -2252,16 +2301,28 @@ class GerkoXAUModel:
                 atr_value,
             )
 
-            support = detect_support_bounce(
-                m5,
-                m15,
-                h1,
-                levels,
-                atr_value,
+            # ------------------------------------------------
+            # SUPPORT BOUNCE
+            # ------------------------------------------------
+
+            support_result = _call_sr_function(
+                detect_support_bounce,
+                {
+                    "m5": m5,
+                    "m15": m15,
+                    "h1": h1,
+                    "levels": levels,
+                    "atr": atr_value,
+                    "price": _last(
+                        m5,
+                        "close",
+                    ),
+                },
+                "SUPPORT BOUNCE",
             )
 
             support_signal = self.sr_signal(
-                support,
+                support_result,
                 m5,
                 m15,
                 h1,
@@ -2283,16 +2344,28 @@ class GerkoXAUModel:
                     support_signal
                 )
 
-            resistance = detect_resistance_bounce(
-                m5,
-                m15,
-                h1,
-                levels,
-                atr_value,
+            # ------------------------------------------------
+            # RESISTANCE BOUNCE
+            # ------------------------------------------------
+
+            resistance_result = _call_sr_function(
+                detect_resistance_bounce,
+                {
+                    "m5": m5,
+                    "m15": m15,
+                    "h1": h1,
+                    "levels": levels,
+                    "atr": atr_value,
+                    "price": _last(
+                        m5,
+                        "close",
+                    ),
+                },
+                "RESISTANCE BOUNCE",
             )
 
             resistance_signal = self.sr_signal(
-                resistance,
+                resistance_result,
                 m5,
                 m15,
                 h1,
@@ -2317,12 +2390,12 @@ class GerkoXAUModel:
         except Exception as exc:
 
             print(
-                "SR ENGINE ERROR | "
+                "SR LEVEL BUILD ERROR | "
                 f"{type(exc).__name__}: {exc}"
             )
 
         # ====================================================
-        # 3. RANGE ENGINE
+        # 3. RANGE
         # ====================================================
 
         regime = self.range_regime(
@@ -2357,61 +2430,56 @@ class GerkoXAUModel:
         # 4. BREAK / RETEST
         # ====================================================
 
-        try:
+        if levels is not None:
 
-            if levels is not None:
-
-                break_result = detect_break_retest(
-                    m5,
-                    m15,
-                    h1,
-                    levels,
-                    _last(
+            break_result = _call_sr_function(
+                detect_break_retest,
+                {
+                    "m5": m5,
+                    "m15": m15,
+                    "h1": h1,
+                    "levels": levels,
+                    "atr": atr_value,
+                    "price": _last(
                         m5,
-                        "atr",
-                        0.0,
+                        "close",
                     ),
-                )
-
-                break_candidate = (
-                    self.break_retest_signal(
-                        break_result,
-                        m5,
-                        context,
-                        impulse,
-                    )
-                )
-
-                if break_candidate is not None:
-
-                    break_candidate[
-                        "trend_context"
-                    ] = context
-
-                    break_candidate[
-                        "impulse"
-                    ] = impulse
-
-                    candidates.append(
-                        break_candidate
-                    )
-
-        except Exception as exc:
-
-            print(
-                "BREAK/RETEST ENGINE ERROR | "
-                f"{type(exc).__name__}: {exc}"
+                },
+                "BREAK/RETEST",
             )
 
+            break_candidate = (
+                self.break_retest_signal(
+                    break_result,
+                    m5,
+                    context,
+                    impulse,
+                )
+            )
+
+            if break_candidate is not None:
+
+                break_candidate[
+                    "trend_context"
+                ] = context
+
+                break_candidate[
+                    "impulse"
+                ] = impulse
+
+                candidates.append(
+                    break_candidate
+                )
+
         # ====================================================
-        # NO QUALIFIED CANDIDATES
+        # NO CANDIDATE
         # ====================================================
 
         if not candidates:
             return None
 
         # ====================================================
-        # RANK CANDIDATES
+        # RANK
         # ====================================================
 
         priority = {
@@ -2432,7 +2500,8 @@ class GerkoXAUModel:
                 ),
                 priority.get(
                     candidate.get(
-                        "setup_type"
+                        "setup_type",
+                        "",
                     ),
                     0,
                 ),
@@ -2463,8 +2532,6 @@ class GerkoXAUModel:
                 "setup_type"
             ]
 
-            # Trend continuation and break/retest cannot
-            # fight the immediate M5 direction.
             if (
                 setup_type in (
                     "TC",
@@ -2475,7 +2542,7 @@ class GerkoXAUModel:
                 return None
 
         # ====================================================
-        # CREATE FINAL SIGNAL
+        # FINAL SIGNAL
         # ====================================================
 
         return self.create_signal(
@@ -2568,10 +2635,6 @@ class GerkoXAUModel:
 
 # ============================================================
 # MODULE-LEVEL FORMATTER
-#
-# Keeps main.py compatible with:
-#
-# from strategy import format_signal
 # ============================================================
 
 def format_signal(
