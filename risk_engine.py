@@ -5,9 +5,13 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class RiskDecision:
+
     allowed: bool
+
     grade: str
+
     quality: str
+
     lot_size: float
 
 
@@ -33,6 +37,7 @@ def classify_signal(
     )
 
     if score < minimum:
+
         return RiskDecision(
             allowed=False,
             grade="NO TRADE",
@@ -41,6 +46,7 @@ def classify_signal(
         )
 
     if score >= 94:
+
         return RiskDecision(
             allowed=True,
             grade="A+",
@@ -49,6 +55,7 @@ def classify_signal(
         )
 
     if score >= 88:
+
         return RiskDecision(
             allowed=True,
             grade="A",
@@ -57,6 +64,7 @@ def classify_signal(
         )
 
     if score >= 83:
+
         return RiskDecision(
             allowed=True,
             grade="A-",
@@ -65,6 +73,7 @@ def classify_signal(
         )
 
     if score >= 78:
+
         return RiskDecision(
             allowed=True,
             grade="B+",
