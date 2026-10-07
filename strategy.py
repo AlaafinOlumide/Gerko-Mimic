@@ -22,6 +22,28 @@ from sr_engine import (
 
 
 # ============================================================
+# LUMIAJ-XAU STRATEGY V3.1
+# ============================================================
+#
+# V3.1 FIX:
+# - Adds MACD compatibility columns required by sr_engine.py
+# - Keeps existing macd_hist column used by trend engine
+# - Adds macd_line and macd_signal explicitly
+#
+# ENGINE DESIGN:
+# - Trend continuation
+# - Support bounce
+# - Resistance bounce
+# - Break/retest
+# - Range edge reversal
+# - Anti-chase protection
+# - Current M5 impulse protection
+# - Trigger-candle exhaustion protection
+# - Multi-timeframe context
+# ============================================================
+
+
+# ============================================================
 # ENVIRONMENT / THRESHOLDS
 # ============================================================
 
@@ -327,6 +349,10 @@ def adx(
     ).mean().fillna(0)
 
 
+# ============================================================
+# ENRICHMENT
+# ============================================================
+
 def enrich(
     df: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -374,6 +400,10 @@ def enrich(
         drop=True
     )
 
+    # --------------------------------------------------------
+    # EMA
+    # --------------------------------------------------------
+
     df["ema20"] = ema(
         df["close"],
         20,
@@ -389,19 +419,72 @@ def enrich(
         100,
     )
 
+    # --------------------------------------------------------
+    # RSI
+    # --------------------------------------------------------
+
     df["rsi"] = rsi(
         df["close"],
         14,
     )
+
+    # --------------------------------------------------------
+    # ATR
+    # --------------------------------------------------------
 
     df["atr"] = atr(
         df,
         14,
     )
 
-    df["macd_hist"] = macd_histogram(
-        df["close"]
+    # --------------------------------------------------------
+    # MACD
+    # --------------------------------------------------------
+    #
+    # IMPORTANT:
+    #
+    # sr_engine.py expects:
+    #     macd_histogram
+    #
+    # The LumiAj trend engine historically uses:
+    #     macd_hist
+    #
+    # We therefore deliberately expose BOTH names.
+    # --------------------------------------------------------
+
+    fast_ema = ema(
+        df["close"],
+        12,
     )
+
+    slow_ema = ema(
+        df["close"],
+        26,
+    )
+
+    df["macd_line"] = (
+        fast_ema
+        - slow_ema
+    )
+
+    df["macd_signal"] = ema(
+        df["macd_line"],
+        9,
+    )
+
+    df["macd_hist"] = (
+        df["macd_line"]
+        - df["macd_signal"]
+    )
+
+    # Compatibility alias for sr_engine.py
+    df["macd_histogram"] = (
+        df["macd_hist"]
+    )
+
+    # --------------------------------------------------------
+    # ADX
+    # --------------------------------------------------------
 
     df["adx"] = adx(
         df,
@@ -536,8 +619,6 @@ def _call_sr_function(
             if matched:
                 continue
 
-            # If the parameter has a default, allow the
-            # sr_engine function to use it.
             if (
                 parameter.default
                 is not inspect.Parameter.empty
@@ -1602,16 +1683,6 @@ class GerkoXAUModel:
         if distance > MAX_SR_CHASE_ATR:
             return None
 
-        if (
-            impulse in (
-                "BUY",
-                "SELL",
-            )
-            and side != impulse
-            and not countertrend
-        ):
-            return None
-
         if trigger_exhausted(
             m5,
             side,
@@ -1984,12 +2055,14 @@ class GerkoXAUModel:
             return None
 
         if signal_time is None:
+
             created = datetime.now()
 
         elif isinstance(
             signal_time,
             datetime,
         ):
+
             created = signal_time
 
         else:
