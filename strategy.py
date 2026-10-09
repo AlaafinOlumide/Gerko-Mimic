@@ -2209,9 +2209,12 @@ class GerkoXAUModel:
 
             if isinstance(candles, dict):
 
-                h1 = h1 or candles.get("h1")
-                m15 = m15 or candles.get("m15")
-                m5 = m5 or candles.get("m5")
+                if h1 is None:
+                    h1 = candles.get("h1")
+                if m15 is None:
+                    m15 = candles.get("m15")
+                if m5 is None:
+                    m5 = candles.get("m5")
 
         if h1 is None:
             h1 = kwargs.get("H1")
@@ -2318,23 +2321,29 @@ class GerkoXAUModel:
                 timeframe="M15",
             )
 
+            # Combine H1 and M15 levels using the current sr_engine
+            # signature: combine_levels(h1_levels, m15_levels, atr_value).
+            # Do not retry with the same invalid arguments if this fails.
             try:
                 levels = combine_levels(
                     h1_levels,
                     m15_levels,
+                    atr_value,
                 )
-            except Exception:
-                try:
-                    levels = combine_levels(
-                        h1_levels,
-                        m15_levels,
-                    )
-                except Exception as exc:
-                    logger.exception(
-                        "LEVEL COMBINATION ERROR | %s",
-                        exc,
-                    )
-                    levels = []
+                levels = levels if levels is not None else []
+                logger.info(
+                    "LEVELS COMBINED | H1=%s | M15=%s | combined=%s | ATR=%s",
+                    len(h1_levels) if h1_levels is not None else 0,
+                    len(m15_levels) if m15_levels is not None else 0,
+                    len(levels),
+                    _fmt(atr_value),
+                )
+            except Exception as exc:
+                logger.exception(
+                    "LEVEL COMBINATION ERROR | %s",
+                    exc,
+                )
+                levels = []
 
             # ------------------------------------------------
             # Candidates
