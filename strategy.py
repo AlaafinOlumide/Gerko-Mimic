@@ -830,35 +830,63 @@ def _diagnose_sr_result(
         )
     )
 
-    level = _safe_float(
-        _get(
-            result,
-            "level",
-            "reference_level",
-            "price_level",
-            "reference",
-            default=0.0,
-        )
+    # sr_engine.BounceResult.level / BreakRetestResult.level is an
+    # SRLevel object, not a numeric price. Unwrap it before converting.
+    level_obj = _get(
+        result,
+        "level",
+        "reference_level",
+        "price_level",
+        "reference",
+        default=None,
     )
 
-    touches = _safe_int(
-        _get(
-            result,
+    if isinstance(level_obj, (int, float, str, np.number)):
+        level = _safe_float(level_obj)
+    else:
+        level = _safe_float(
+            _get(
+                level_obj,
+                "price",
+                "level_price",
+                "value",
+                default=0.0,
+            )
+        )
+
+    # Prefer explicitly provided result metadata when present; otherwise
+    # take it from the nested SRLevel dataclass/dictionary.
+    touches_value = _get(
+        result,
+        "touches",
+        "level_touches",
+        "touch_count",
+        default=None,
+    )
+    if touches_value is None:
+        touches_value = _get(
+            level_obj,
             "touches",
             "level_touches",
             "touch_count",
             default=0,
         )
-    )
+    touches = _safe_int(touches_value)
 
-    strength = _safe_float(
-        _get(
-            result,
+    strength_value = _get(
+        result,
+        "strength",
+        "level_strength",
+        default=None,
+    )
+    if strength_value is None:
+        strength_value = _get(
+            level_obj,
             "strength",
             "level_strength",
             default=0.0,
         )
-    )
+    strength = _safe_float(strength_value)
 
     reasons = _get(
         result,
@@ -872,6 +900,14 @@ def _diagnose_sr_result(
 
     if reasons is None:
         reasons = []
+
+    if detected and level <= 0:
+        logger.warning(
+            "%s RESULT WARNING | detected=True but no valid reference level; "
+            "raw_level_type=%s",
+            label,
+            type(level_obj).__name__,
+        )
 
     logger.info(
         "%s RESULT | detected=%s | side=%s | score=%s | "
