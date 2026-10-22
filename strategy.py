@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import inspect
 import logging
 import os
@@ -2765,7 +2766,7 @@ class GerkoXAUModel:
         )
 
         reason_text = "\n".join(
-            f"• {reason}"
+            f"• {html.escape(str(reason))}"
             for reason in signal.reasons[:6]
         )
 
@@ -2776,7 +2777,7 @@ class GerkoXAUModel:
             f"<b>{signal.symbol}</b>\n"
             "\n"
             f"<b>Premium LumiAj Setup</b>\n"
-            f"Setup: <b>{signal.setup_name}</b>\n"
+            f"Setup: <b>{html.escape(str(signal.setup_name))}</b>\n"
             f"Score: <b>{signal.score}/100</b>\n"
             f"Grade: <b>{signal.grade}</b>\n"
             f"Quality: <b>{signal.quality}</b>\n"
@@ -2798,9 +2799,9 @@ class GerkoXAUModel:
             f"<b>Lot</b>: {signal.lot_size:.2f}\n"
             "\n"
             f"<b>Trend Context</b>: "
-            f"{signal.trend_context}\n"
+            f"{html.escape(str(signal.trend_context))}\n"
             f"<b>M5 Impulse</b>: "
-            f"{signal.impulse}\n"
+            f"{html.escape(str(signal.impulse))}\n"
             "\n"
             "<b>WHY LumiAj TRIGGERED</b>\n"
             f"{reason_text}\n"
@@ -2813,7 +2814,7 @@ class GerkoXAUModel:
             f"{signal.level_touches}\n"
             "\n"
             f"<b>Invalidation</b>\n"
-            f"{signal.invalidation}\n"
+            f"{html.escape(str(signal.invalidation))}\n"
             "\n"
             f"🆔 <code>{signal.signal_id}</code>\n"
             "\n"
