@@ -930,7 +930,7 @@ def detect_break_retest(
 
             if (
                 float(latest["close"])
-                > float(latest["ema20"])
+                > float(latest["ema_20"])
             ):
                 score += 7
 
@@ -1031,7 +1031,7 @@ def detect_break_retest(
 
             if (
                 float(latest["close"])
-                < float(latest["ema20"])
+                < float(latest["ema_20"])
             ):
                 score += 7
 
